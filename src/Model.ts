@@ -1,12 +1,18 @@
-const pluralize = require('pluralize')
+import { Knex } from 'knex'
+import pluralize from 'pluralize'
 
-/** @type {import('knex').Knex} */
-let knex
+interface Constructor<M> {
+  new (...args: any[]): M
+}
 
-let _models
+let knex: Knex
 
-class Model {
-  static #internalConstructor = false
+let _models: Function[]
+
+export class Model {
+  [key: string]: any
+
+  static #internalConstructor: boolean = false
 
   constructor() {
     if (!Model.#internalConstructor) {
@@ -16,23 +22,23 @@ class Model {
     Model.#internalConstructor = false
   }
 
-  static boot(instance) {
+  static boot(instance: Knex): void {
     knex = instance
   }
 
-  static associate(models) {
+  static associate(models): void {
     _models = models
   }
 
-  get tableName() {
+  get tableName(): string {
     return pluralize(this.constructor.name).toLowerCase()
   }
 
-  get models() {
+  get models(): object {
     return _models
   }
 
-  static async count() {
+  static async count(): Promise<number> {
     Model.#internalConstructor = true
     const model = new this
 
@@ -41,18 +47,18 @@ class Model {
     return Number(result.count)
   }
 
-  serialize() {
+  serialize(): object {
     return this
   }
 
-  static async delete() {
+  static async delete(): Promise<void> {
     Model.#internalConstructor = true
     const model = new this
 
     await knex(model.tableName).delete()
   }
 
-  static async create(attributes) {
+  static async create<T extends Model>(this: Constructor<T>, attributes: object): Promise<T> {
     Model.#internalConstructor = true
     const instance = new this
     Object.seal(instance)
@@ -69,7 +75,7 @@ class Model {
     return instance
   }
 
-  static async make(attributes) {
+  static async make<T extends Model>(this: Constructor<T>, attributes: object): Promise<T> {
     Model.#internalConstructor = true
     const instance = new this
     Object.seal(instance)
@@ -80,7 +86,7 @@ class Model {
     return instance
   }
 
-  static async find(id) {
+  static async find<T extends Model>(this: Constructor<T>, id: string | number): Promise<T> {
     Model.#internalConstructor = true
     const instance = new this
     Object.seal(instance)
@@ -92,7 +98,7 @@ class Model {
     return instance
   }
 
-  static async where(attributes) {
+  static async where<T extends Model>(this: Constructor<T>, attributes: object): Promise<T[]> {
     Model.#internalConstructor = true
     const model = new this
 
@@ -108,19 +114,19 @@ class Model {
     })
   }
 
-  async save() {
+  async save(): Promise<void> {
     await knex(this.tableName)
       .returning(Object.keys(this))
       .where({ id: this.id }) // TODO: Allow model to override primary key field.
       .update(this)
   }
 
-  async delete() {
+  async delete(): Promise<void> {
     // TODO: Allow model to override primary key field.
     await knex(this.tableName).where({ id: this.id }).delete()
   }
 
-  async hasMany(model, foreignKey, localKey) {
+  async hasMany(model: string | Function, foreignKey?: string, localKey?: string): Promise<object[]> {
     let table, cls
 
     if (typeof model === 'string' && this.models[model] !== undefined) {
@@ -152,5 +158,3 @@ class Model {
     })
   }
 }
-
-module.exports = Model

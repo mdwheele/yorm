@@ -11,6 +11,6 @@ module.exports = {
     ssl: false,
   },
   migrations: {
-    directory: './example/migrations'
+    directory: './examples/cjs-blog/migrations'
   }
 }

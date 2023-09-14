@@ -1,4 +1,4 @@
-const Model = require('../../../src/Model.js')
+const { Model } = require('yorm.js')
 
 class Post extends Model {
   id
