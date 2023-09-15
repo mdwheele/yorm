@@ -185,9 +185,8 @@ class User extends Model {
   }
 
   comments() {
-    // You can also pass in a string that maps to the name of a model
-    // that was passed to Model.associate(...) calls during bootstrapping.
-    return this.hasMany('Comment', 'author_id')
+    // SELECT * FROM posts WHERE author_id = '${this.id}'
+    return this.hasMany(this.models.Post, 'author_id')
   }
 }
 ```
@@ -196,4 +195,20 @@ There's a couple things going on up there. First, we're modeling two relationshi
 
 ### Belongs To
 
-Coming soon!
+```js
+class Post extends Model {
+  id
+  author_id
+  title
+  content
+  created_at
+  updated_at
+
+  user() {
+    // SELECT * FROM users WHERE id = '${this.author_id}'
+    return this.belongsTo(this.models.User, 'author_id')
+  }
+}
+```
+
+A "Belongs To" relationship is the inverse of a One-to-Many relationship. If a User has-many Posts, then this is a way to get an individual Post's author through that same relationship.

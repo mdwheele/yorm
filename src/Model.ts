@@ -191,7 +191,7 @@ export class Model {
     })
   }
 
-  protected async belongsTo<T extends Model>(model: Constructor<T>, belongsToKey?: string | null, localKey?: string | null): Promise<T> {
+  protected async belongsTo<T extends Model>(model: Constructor<T>, localKey?: string | null, belongsToKey?: string | null): Promise<T> {
     let table: string
 
     if (this.models[model.name] === undefined) {
@@ -203,7 +203,7 @@ export class Model {
     table = modelInstance.tableName
 
     const pk = belongsToKey || `${table}.${modelInstance.primaryKey}`
-    const lk = localKey || `${this.tableName}.${pluralize(table)}_id`
+    const lk = localKey || `${table}_id`
 
     const q = knex(table).where({ [pk]: this[lk] })
 
