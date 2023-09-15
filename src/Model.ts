@@ -67,7 +67,9 @@ export class Model {
   }
 
   get etag(): string {
-    return etag(JSON.stringify(this))
+    const clone = structuredClone(this)
+
+    return etag(JSON.stringify(clone))
   }
 
   static async create<T extends Model>(this: Constructor<T>, attributes: object): Promise<T> {
