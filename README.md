@@ -6,6 +6,22 @@ Yet Another ORM 🤷
 
 YORM is a no-nonsense, super-simple and light-weight ORM built on top of [Knex](https://knexjs.org) and inspired by Laravel's [Eloquent ORM](https://laravel.com/docs/master/eloquent).
 
+
+```js
+class Example extends Model {
+  hello = 'Hello'
+  world = 'World'
+
+  toString() {
+    return `${this.hello}, ${this.world}!`
+  }
+}
+
+const example = Example.make()
+
+console.log(example)  // Hello, World!
+```
+
 ## How's it work?
 
 Imagine writing migrations like...
@@ -118,26 +134,36 @@ It's very, very common to want to have two models that relate to one another. Im
 By doing this, we're allowing all the modules to load, THEN we're iterating through each of them and "telling" the others about the full collection. Check it out:
 
 ```js
-const fs = require('fs')
-const path = require('path')
+const { Model } = require('yorm.js')
 
-const models = {}
+// None of these modules should `require(...)` one another.
+const User = require('./User.js')
+const Post = require('./Post.js')
+const Comment = require('./Comment.js')
 
-fs.readdirSync(path.join(__dirname)).forEach(file => {
-  if (file === 'index.js') {
-    return
-  }
+module.exports = { User, Post, Comment }
 
-  const model = path.parse(file).name
-
-  models[model] = require(path.join(__dirname, file))
-})
-
-Object.keys(models).forEach(model => {
-  models[model].register(models)
-})
+Model.register(module.exports)
 
 module.exports = models
+```
+
+Of course, you are completely free to ignore this altogether and do whatever you do to manage circular dependencies. Each of the relationship mapping functions expect to be given a class reference and they don't care how that happens. As long as they can call `.name` on what you pass in and `new` it up, it's all good. For example, if I know I won't be putting a `.belongsTo(...)` relationship from `Post` to `User`, I could just do this:
+
+```js
+const { Model } = require('yorm.js')
+const Post = require('./Post.js')
+
+class User extends Model {
+  id
+  username
+  email
+
+  posts() {
+    // SELECT * FROM posts WHERE user_id = '${this.id}'
+    return this.hasMany(Post)
+  }
+}
 ```
 
 ## How do I tell YORM about my `knex` instance?
@@ -145,13 +171,12 @@ module.exports = models
 Wherever you set up your application's shared `knex` instance, just call `Model.useKnex(knex)` when it's ready. This tells YORM to use that instance of `knex`.
 
 ```js
+const { knex } = require('knex')
 const knexfile = require('./knexfile.js')
-
-const knex = require('knex').default(knexfile)
 
 const { Model } = require('yorm')
 
-Model.useKnex(knex)
+Model.useKnex(knex(knexfile))
 
 module.exports = knex
 ```
@@ -201,7 +226,7 @@ class User extends Model {
 
   photo() {
     // SELECT * FROM photos WHERE photos.user_id = '${this.id}' LIMIT 1
-    return this.hasMany(this.models.Photo)
+    return this.hasOne(this.models.Photo)
   }
 }
 ```
