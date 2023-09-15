@@ -44,7 +44,9 @@ export class Model {
 
     const [result] = await knex(model.tableName).count()
 
-    return Number(result.count)
+    const [count] = Object.values(result)
+
+    return Number(count)
   }
 
   serialize(): object {
