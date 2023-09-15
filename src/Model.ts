@@ -193,6 +193,44 @@ export class Model {
     })
   }
 
+  protected async hasOne<T extends Model>(model: Constructor<T>, foreignKey?: string, localKey?: string): Promise<T> {
+    let foreignTable: string
+
+    if (this.models[model.name] === undefined) {
+      throw new TypeError(`Invalid relationship model: ${model}`)
+    }
+
+    Model.#internalConstructor = true
+    const foreignModel = new model
+    foreignTable = foreignModel.tableName
+
+    /**
+     * User-provided `foreignKey` will be used if provided.
+     * 
+     * If `foreignKey` is undefined, we use a pluralization convention
+     * to determine the foreign key on the joining table.
+     * 
+     * For example, if we have User.hasMany(Photo), then the foreign
+     * key field name will be `photos.user_id`.
+     */
+    const fk = foreignKey || `${foreignTable}.${this.tableName}_id`
+    const pk = localKey || this.primaryKey
+
+    const [record] = await knex(foreignTable)
+      .where({ [fk]: this[pk] })
+      .limit(1)
+  
+    if (!record) {
+      return null
+    }
+
+    Model.#internalConstructor = true
+    const instance = new model
+    Object.seal(instance)
+    Object.assign(instance, instance.deserialize(record))
+    return instance
+  }
+
   protected async belongsTo<T extends Model>(model: Constructor<T>, localKey?: string | null, belongsToKey?: string | null): Promise<T> {
     let table: string
 

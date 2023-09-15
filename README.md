@@ -165,9 +165,7 @@ Thought you'd never ask! YORM supports the usual relationship types:
   - Belongs To
 
 YORM does not support "Many to Many" relationships yet because honestly... haven't needed em' in a while and I'm just slapping this together. It'll be added for sure.
-### One to One
 
-Coming soon!
 ### One to Many 
 
 ```js
@@ -192,6 +190,21 @@ class User extends Model {
 ```
 
 There's a couple things going on up there. First, we're modeling two relationships: A user has-many posts and a user has-many comments. You see two different flavors for how this can be done. In the simplest case (not shown), you only have to return `this.hasMany(...)` with a single argument that references the related model. The ORM will inspect that model for its computed table name and follow a convention that the foreign-key on the related table will point back to `{tableName}_id`. So, in this case, it would NORMALLY point back to `users.user_id`. However, in our example, the `posts` and `comments` tables named that field `author_id`. The second argument to `hasMany` allows you to override that foreign key name.
+
+### One to One
+
+```js
+class User extends Model {
+  id
+  username
+  email
+
+  photo() {
+    // SELECT * FROM photos WHERE photos.user_id = '${this.id}' LIMIT 1
+    return this.hasMany(this.models.Photo)
+  }
+}
+```
 
 ### Belongs To
 
