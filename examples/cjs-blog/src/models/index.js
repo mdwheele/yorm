@@ -1,20 +1,11 @@
-const fs = require('fs')
-const path = require('path')
+const User = require('./User.js')
+const Post = require('./Post.js')
+const Comment = require('./Comment.js')
 
-const models = {}
+const models = { User, Post, Comment }
 
-fs.readdirSync(path.join(__dirname)).forEach(file => {
-  if (file === 'index.js') {
-    return
-  }
-
-  const model = path.parse(file).name
-
-  models[model] = require(path.join(__dirname, file))
-})
-
-Object.keys(models).forEach(model => {
-  models[model].associate(models)
+Object.keys(models).forEach(key => {
+  models[key].associate(models)
 })
 
 module.exports = models

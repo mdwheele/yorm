@@ -7,7 +7,7 @@ interface Constructor<M> {
 
 let knex: Knex
 
-let _models: Function[]
+let _models
 
 export class Model {
   [key: string]: any
@@ -30,11 +30,11 @@ export class Model {
     _models = models
   }
 
-  get tableName(): string {
+  protected get tableName(): string {
     return pluralize(this.constructor.name).toLowerCase()
   }
 
-  get models(): object {
+  protected get models() {
     return _models
   }
 
@@ -126,19 +126,15 @@ export class Model {
     await knex(this.tableName).where({ id: this.id }).delete()
   }
 
-  async hasMany(model: string | Function, foreignKey?: string, localKey?: string): Promise<object[]> {
-    let table, cls
+  protected async hasMany<T extends Model>(model: Constructor<T>, foreignKey?: string, localKey?: string): Promise<T[]> {
+    let table: string
 
-    if (typeof model === 'string' && this.models[model] !== undefined) {
-      cls = this.models[model]
-    } else if (typeof model === 'function') {
-      cls = model
-    } else {
+    if (this.models[model.name] === undefined) {
       throw new TypeError(`Invalid relationship model: ${model}`)
     }
 
     Model.#internalConstructor = true
-    const instance = new cls
+    const instance = new model
     table = instance.tableName
 
     const fk = foreignKey || `${table}.${pluralize.singular(this.tableName)}_id`
@@ -149,7 +145,7 @@ export class Model {
 
     return records.map(record => {
       Model.#internalConstructor = true
-      const instance = new cls
+      const instance = new model
 
       Object.seal(instance)
       Object.assign(instance, record)

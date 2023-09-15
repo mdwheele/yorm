@@ -11,7 +11,6 @@ beforeAll(async () => {
 })
 
 test(`Let's make a blog!`, async () => {
-  /** @type {User} */
   const susan = await User.create({
     email: 'susan@example.com',
     name: 'Susan Example',

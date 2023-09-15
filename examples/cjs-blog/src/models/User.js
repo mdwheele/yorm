@@ -15,10 +15,11 @@ class User extends Model {
     return this.hasMany(this.models.Post, 'author_id')
   }
 
+  /**
+   * @returns {Promise<import('./Comment.js')[]>}
+   */
   comments() {
-    // You can also pass in a string that maps to the name of a model
-    // that was passed to Model.associate(...) calls during bootstrapping.
-    return this.hasMany('Comment', 'author_id')
+    return this.hasMany(this.models.Comment, 'author_id')
   }
 }
 
