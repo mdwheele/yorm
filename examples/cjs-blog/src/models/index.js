@@ -5,7 +5,7 @@ const Comment = require('./Comment.js')
 const models = { User, Post, Comment }
 
 Object.keys(models).forEach(key => {
-  models[key].associate(models)
+  models[key].register(models)
 })
 
 module.exports = models

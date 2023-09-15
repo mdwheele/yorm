@@ -6,9 +6,19 @@ interface Constructor<M> {
   new (...args: any[]): M
 }
 
+/**
+ * The Knex instance that will be used by all YORM models. This is set through 
+ * Model.useKnex(...) method and should not be changed after the fact.
+ */
 let knex: Knex
 
-let _models
+/**
+ * This is provided to all child classes as `this.models`. This pattern
+ * allows developers to "register" models with one another without creating
+ * circular dependencies in the module loader. Nothing should touch this except
+ * for `Model`.
+ */
+let modelRegistry
 
 export class Model {
   [key: string]: any
@@ -23,12 +33,12 @@ export class Model {
     Model.#internalConstructor = false
   }
 
-  static boot(instance: Knex): void {
+  static useKnex(instance: Knex): void {
     knex = instance
   }
 
-  static associate(models): void {
-    _models = models
+  static register(models): void {
+    modelRegistry = models
   }
 
   protected get tableName(): string {
@@ -40,7 +50,7 @@ export class Model {
   }
 
   protected get models() {
-    return _models
+    return modelRegistry
   }
 
   static async count(): Promise<number> {

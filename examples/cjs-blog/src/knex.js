@@ -4,6 +4,6 @@ const knex = require('knex').default(knexfile)
 
 const { Model } = require('yorm.js')
 
-Model.boot(knex)
+Model.useKnex(knex)
 
 module.exports = knex

@@ -113,7 +113,7 @@ class User extends Model {
 
 ## What about circular dependencies?
 
-It's very, very common to want to have two models that relate to one another. Imagine a "user has posts", but a "post belongs to a user". Unfortunately, in Node, you run into all sorts of funky issues when you have two modules require one another. Instead, YORM advises to create an `index.js` file wherever you keep your models at. This file will re-export all of your models and at the same time, `associate` all of the models with one another.
+It's very, very common to want to have two models that relate to one another. Imagine a "user has posts", but a "post belongs to a user". Unfortunately, in Node, you run into all sorts of funky issues when you have two modules require one another. Instead, YORM advises to create an `index.js` file wherever you keep your models at. This file will re-export all of your models and at the same time, `register` all of the models with one another.
 
 By doing this, we're allowing all the modules to load, THEN we're iterating through each of them and "telling" the others about the full collection. Check it out:
 
@@ -134,7 +134,7 @@ fs.readdirSync(path.join(__dirname)).forEach(file => {
 })
 
 Object.keys(models).forEach(model => {
-  models[model].associate(models)
+  models[model].register(models)
 })
 
 module.exports = models
@@ -142,7 +142,7 @@ module.exports = models
 
 ## How do I tell YORM about my `knex` instance?
 
-Wherever you set up your application's shared `knex` instance, just call `Model.boot(knex)` when it's ready. This tells YORM to use that instance of `knex`.
+Wherever you set up your application's shared `knex` instance, just call `Model.useKnex(knex)` when it's ready. This tells YORM to use that instance of `knex`.
 
 ```js
 const knexfile = require('./knexfile.js')
@@ -151,7 +151,7 @@ const knex = require('knex').default(knexfile)
 
 const { Model } = require('yorm')
 
-Model.boot(knex)
+Model.useKnex(knex)
 
 module.exports = knex
 ```
