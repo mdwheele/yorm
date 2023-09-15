@@ -1,8 +1,4 @@
-# YORM
-
-Yet Another ORM 🤷
-
-> Going to be writing some more documentation but for now...
+# Yet Another ORM 🤷
 
 YORM is a no-nonsense, super-simple and light-weight ORM built on top of [Knex](https://knexjs.org) and inspired by Laravel's [Eloquent ORM](https://laravel.com/docs/master/eloquent).
 
@@ -19,7 +15,7 @@ class Example extends Model {
 
 const example = Example.make()
 
-console.log(example)  // Hello, World!
+console.log(`${example}`)  // Hello, World!
 ```
 
 ## How's it work?
@@ -56,6 +52,7 @@ class User extends Model {
 ... and then, imagine you could just start CRUD-ing from the `users` table ... :unicorn:
 
 ```js
+// Add a new user to the database!
 const user = await User.create({
   email: 'susan@example.com',
   name: 'Susan Example',
@@ -80,9 +77,9 @@ await user.delete()
 await User.count()
 ```
 
-## Model properties are the source of truth
+## Stop the bad from happening
 
-What if folks start adding random properties here and there. HOW IS YORM GONNA HANDLE THAT?!
+What if folks start adding random properties here and there? HOW IS YORM GONNA HANDLE THAT?!
 
 <img align="right" width="300" src="https://media.giphy.com/media/14wTbNneogwjba/giphy.gif" />
 
@@ -99,7 +96,7 @@ const user = await User.create({
 user.badPropertyAfterTheFact = true
 ```
 
-You see, before any instance of a model is returned, we seal the object to prevent addition (or removal) of properties from the object. Only properties explicitly declared on the model are allowed... for now.
+Before any instance of a model is returned, we seal the object to prevent addition (or removal) of properties from the object. Only properties explicitly declared on the model are allowed... for now.
 
 ## NO CONSTRUCTORS?! :fire:
 
@@ -144,8 +141,6 @@ const Comment = require('./Comment.js')
 module.exports = { User, Post, Comment }
 
 Model.register(module.exports)
-
-module.exports = models
 ```
 
 Of course, you are completely free to ignore this altogether and do whatever you do to manage circular dependencies. Each of the relationship mapping functions expect to be given a class reference and they don't care how that happens. As long as they can call `.name` on what you pass in and `new` it up, it's all good. For example, if I know I won't be putting a `.belongsTo(...)` relationship from `Post` to `User`, I could just do this:
