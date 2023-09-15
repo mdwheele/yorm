@@ -1,6 +1,6 @@
 {
   "name": "yorm.js",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Yet Another JavaScript ORM",
   "scripts": {
     "test": "jest",
@@ -11,7 +11,9 @@
     "orm",
     "database"
   ],
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "author": "Dustin Wheeler",
   "license": "MIT",
   "main": "dist/index.js",
