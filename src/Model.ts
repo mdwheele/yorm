@@ -1,6 +1,7 @@
 import { Knex } from 'knex'
 import pluralize from 'pluralize'
 import etag from 'etag'
+import { pick } from 'lodash'
 
 interface Constructor<M> {
   new (...args: any[]): M
@@ -20,6 +21,25 @@ let knex: Knex
  */
 let modelRegistry
 
+/**
+ * Non-enumerable key to store a Set<string> for dirty-tracking in Model. 
+ */
+const $dirty = Symbol('dirty')
+
+function trackChanges<T extends Model>(object: T): T {
+  return new Proxy(object, {
+    set(object, key, value) {
+      if (object[key as any] !== value) {
+        object[$dirty as any].add(key)
+        /** @ts-ignore */
+        object[key as any] = value
+      }
+
+      return true
+    }
+  })
+}
+
 export class Model {
   [key: string]: any
 
@@ -29,7 +49,9 @@ export class Model {
     if (!Model.#internalConstructor) {
       throw new TypeError(`Models cannot be manually constructed. Use ${this.constructor.name}.make() or ${this.constructor.name}.create()`)
     }
-    
+
+    Object.defineProperty(this, $dirty, { enumerable: false, configurable: false, value: new Set() })
+
     Model.#internalConstructor = false
   }
 
@@ -51,6 +73,30 @@ export class Model {
 
   protected get models() {
     return modelRegistry
+  }
+
+  isDirty(fields: string | string[] = []): boolean {
+    const dirtyFields = this[$dirty as any]
+
+    if (!dirtyFields) {
+      return false
+    }
+
+    if (typeof fields === 'string') {
+      return dirtyFields.has(fields)
+    } else if (Array.isArray(fields) && fields.length > 0) {
+      return fields.some(field => this[$dirty as any].has(field))
+    } else {
+      return dirtyFields.size > 0
+    }
+  }
+
+  isClean(fields: string | string[] = []): boolean {
+    return !this.isDirty(fields)
+  }
+
+  wasChanged(): string[] {
+    return [...this[$dirty as any].values()]
   }
 
   static async count(): Promise<number> {
@@ -82,7 +128,7 @@ export class Model {
     return etag(JSON.stringify(clone))
   }
 
-  static async create<T extends Model>(this: Constructor<T>, attributes: object): Promise<T> {
+  static async create<T extends Model>(this: Constructor<T>, attributes: object = {}): Promise<T> {
     /** @ts-ignore */
     const instance = this.make(attributes)
 
@@ -93,20 +139,21 @@ export class Model {
     const lastInsert = instance[instance.primaryKey] || id
 
     const [record] = await knex(instance.tableName).where({ uuid: lastInsert })
-    Object.assign(instance, instance.deserialize(record))
+
+    /** @ts-ignore */
+    const freshInstance = this.make(record)
+    Object.assign(freshInstance, freshInstance.deserialize(record))
     
-    return instance
+    return freshInstance
   }
 
-  static make<T extends Model>(this: Constructor<T>, attributes: object): T {
+  static make<T extends Model>(this: Constructor<T>, attributes: object = {}): T {
     Model.#internalConstructor = true
     const instance = new this
     Object.seal(instance)
+    Object.assign(instance, instance.deserialize(attributes))
 
-    // Will throw errors if assigning extra properties
-    Object.assign(instance, attributes)
-    
-    return instance
+    return trackChanges<T>(instance)
   }
 
   static async find<T extends Model>(this: Constructor<T>, id: string | number): Promise<T> {
@@ -120,7 +167,7 @@ export class Model {
       return null
     }
 
-    return instance
+    return trackChanges<T>(instance)
   }
 
   static async where<T extends Model>(this: Constructor<T>, attributes: object): Promise<T[]> {
@@ -146,14 +193,20 @@ export class Model {
       const instance = new this
       Object.seal(instance)
       Object.assign(instance, instance.deserialize(record))
-      return instance
+      return trackChanges<T>(instance)
     })
   }
 
   async save(): Promise<void> {
+    if (this.isClean()) {
+      return
+    }
+
     await knex(this.tableName)
       .where({ [this.primaryKey]: this[this.primaryKey] })
-      .update(this.serialize())
+      .update(pick(this.serialize(), this.wasChanged()))
+
+    this[$dirty as any].clear()
   }
 
   async delete(): Promise<void> {
@@ -199,7 +252,7 @@ export class Model {
       const instance = new model
       Object.seal(instance)
       Object.assign(instance, instance.deserialize(record))
-      return instance
+      return trackChanges<T>(instance)
     })
   }
 
@@ -238,7 +291,7 @@ export class Model {
     const instance = new model
     Object.seal(instance)
     Object.assign(instance, instance.deserialize(record))
-    return instance
+    return trackChanges<T>(instance)
   }
 
   protected async belongsTo<T extends Model>(model: Constructor<T>, localKey?: string | null, belongsToKey?: string | null): Promise<T> {
@@ -263,6 +316,6 @@ export class Model {
     const instance = new model
     Object.seal(instance)
     Object.assign(instance, instance.deserialize(record))
-    return instance
+    return trackChanges<T>(instance)
   }
 }
