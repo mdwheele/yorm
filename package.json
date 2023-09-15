@@ -1,14 +1,14 @@
 {
   "name": "yorm.js",
-  "version": "1.0.0",
-  "description": "",
+  "version": "0.0.0",
+  "description": "Yet Another JavaScript ORM",
   "scripts": {
     "test": "jest",
     "build": "rm -fr dist/* && tsc"
   },
-  "keywords": [],
+  "keywords": ["orm", "database"],
   "author": "Dustin Wheeler",
-  "license": "ISC",
+  "license": "MIT",
   "main": "dist/index.js",
   "module": "dist/index.js",
   "exports": {
