@@ -1,5 +1,6 @@
 import { Knex } from 'knex'
 import pluralize from 'pluralize'
+import etag from 'etag'
 
 interface Constructor<M> {
   new (...args: any[]): M
@@ -53,11 +54,12 @@ export class Model {
     return this
   }
 
-  static async delete(): Promise<void> {
-    Model.#internalConstructor = true
-    const model = new this
+  toJSON() {
+    return this
+  }
 
-    await knex(model.tableName).delete()
+  get etag(): string {
+    return etag(JSON.stringify(this))
   }
 
   static async create<T extends Model>(this: Constructor<T>, attributes: object): Promise<T> {

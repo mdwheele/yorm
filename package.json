@@ -21,6 +21,7 @@
     }
   },
   "dependencies": {
+    "etag": "^1.8.1",
     "knex": "^2.5.1",
     "pluralize": "^8.0.0"
   },
