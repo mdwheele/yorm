@@ -4,12 +4,14 @@
   "description": "Yet Another JavaScript ORM",
   "scripts": {
     "test": "jest",
-    "build": "rm -fr dist/* && tsc"
+    "build": "rm -fr dist/* && tsc",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "orm",
     "database"
   ],
+  "files": ["dist"],
   "author": "Dustin Wheeler",
   "license": "MIT",
   "main": "dist/index.js",
