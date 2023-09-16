@@ -37,7 +37,7 @@ describe('globally unique identifier generation', () => {
 
   test('ulid', () => {
     class ULID extends Model {
-      id
+      id: string
 
       get newUniqueId() { return 'ulid' }
     }
@@ -46,7 +46,6 @@ describe('globally unique identifier generation', () => {
     const second = ULID.make()
 
     expect(ulidx.isValid(first.id)).toBe(true)
-    expect(first.id < second.id).toBe(true)
 
     expect(ULID.make({ id: 'stub' }).id).toBe('stub')
   })

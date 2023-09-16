@@ -137,6 +137,18 @@ export class Model {
     return etag(JSON.stringify(clone))
   }
 
+  static async firstOrCreate<T extends Model>(this: Constructor<T>, attributes: object = {}): Promise<T> {
+    /** @ts-ignore */
+    const [existing] = await this.where(attributes)
+
+    if (existing) {
+      return existing
+    }
+
+    /** @ts-ignore */
+    return this.create(attributes)
+  }
+
   static async create<T extends Model>(this: Constructor<T>, attributes: object = {}): Promise<T> {
     /** @ts-ignore */
     const instance = this.make(attributes)
@@ -145,9 +157,9 @@ export class Model {
       .returning([instance.primaryKey])
       .insert(instance.serialize())
 
-    const lastInsert = instance[instance.primaryKey] || id
+    const { id: lastInsert } = instance[instance.primaryKey] || id
 
-    const [record] = await knex(instance.tableName).where({ uuid: lastInsert })
+    const [record] = await knex(instance.tableName).where({ [instance.primaryKey]: lastInsert })
 
     /** @ts-ignore */
     const freshInstance = this.make(record)
@@ -198,14 +210,25 @@ export class Model {
     return trackChanges<T>(instance)
   }
 
-  static async where<T extends Model>(this: Constructor<T>, attributes: object): Promise<T[]> {
-    Model.#internalConstructor = true
-    const model = new this
-
+  static async findOrFail<T extends Model>(this: Constructor<T>, id: string | number): Promise<T> {
     /** @ts-ignore */
-    const instances = await this.query(builder => builder.where(attributes))
+    const instance = await this.find(id)
 
-    return instances
+    if (!instance) {
+      throw new Error('Model not found.')
+    }
+
+    return instance
+  }
+
+  static async where<T extends Model>(this: Constructor<T>, attributes: object): Promise<T[]> {
+    /** @ts-ignore */
+    return await this.query(builder => builder.where(attributes))
+  }
+
+  static async all<T extends Model>(this: Constructor<T>, id: string | number): Promise<T[]> {
+    /** @ts-ignore */
+    return await this.query(builder => builder)
   }
 
   static async query<T extends Model>(this: Constructor<T>, callback: (builder: Knex.QueryBuilder) => Promise<Array<any>>): Promise<T[]> {
