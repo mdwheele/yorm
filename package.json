@@ -5,7 +5,8 @@
   "scripts": {
     "test": "jest",
     "build": "rm -fr dist/* && tsc",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "dev": "tsc --watch"
   },
   "keywords": [
     "orm",
@@ -28,19 +29,23 @@
     "etag": "^1.8.1",
     "knex": "^2.5.1",
     "lodash": "^4.17.21",
-    "pluralize": "^8.0.0"
+    "nanoid": "^3.3.6",
+    "pluralize": "^8.0.0",
+    "ulidx": "^2.1.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/jest": "^29.5.4",
     "@types/lodash": "^4.14.198",
+    "@types/nanoid": "^3.0.0",
     "@types/node": "^20.6.0",
+    "@types/uuid": "^9.0.4",
     "dotenv": "^16.3.1",
     "dotenv-expand": "^10.0.0",
     "jest": "^29.7.0",
     "pg": "^8.11.3",
     "ts-jest": "^29.1.1",
     "ts-node": "^10.9.1",
-    "typescript": "^5.2.2",
-    "uuid": "^9.0.1"
+    "typescript": "^5.2.2"
   }
 }

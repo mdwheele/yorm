@@ -2,10 +2,15 @@ import { Knex } from 'knex'
 import pluralize from 'pluralize'
 import etag from 'etag'
 import { pick } from 'lodash'
+import * as uuid from 'uuid'
+import ulidx from 'ulidx'
+import { nanoid } from 'nanoid'
 
 interface Constructor<M> {
   new (...args: any[]): M
 }
+
+type SupportedUniqueId = null | string | 'uuid' | 'ulid' | 'nanoid'
 
 /**
  * The Knex instance that will be used by all YORM models. This is set through 
@@ -69,6 +74,10 @@ export class Model {
 
   protected get primaryKey(): string {
     return 'id'
+  }
+
+  protected get newUniqueId(): SupportedUniqueId {
+    return null
   }
 
   protected get models() {
@@ -151,6 +160,25 @@ export class Model {
     Model.#internalConstructor = true
     const instance = new this
     Object.seal(instance)
+
+    if (instance.newUniqueId !== null) {
+      if (instance.newUniqueId === 'uuid') {
+        /** @ts-ignore */
+        instance.id = uuid.v4()
+      } else if (instance.newUniqueId === 'ulid') {
+        /** @ts-ignore */
+        instance.id = ulidx.ulid()
+      } else if (instance.newUniqueId === 'nanoid') {
+        /** @ts-ignore */
+        instance.id = nanoid()
+      } else if (typeof instance.newUniqueId === 'string') {
+        /** @ts-ignore */
+        instance.id = instance.newUniqueId
+      } else {
+        throw new TypeError('Accessor `newUniqueId` must return a string.')
+      }
+    }
+
     Object.assign(instance, instance.deserialize(attributes))
 
     return trackChanges<T>(instance)
