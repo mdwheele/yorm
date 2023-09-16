@@ -167,6 +167,8 @@ export class Model {
       .returning([instance.primaryKey])
       .insert(instance.serialize())
 
+    // The form of this is likely driver specific.
+    // TODO: Look into this. This works for PostgreSQL.
     const { id: lastInsert } = instance[instance.primaryKey] || id
 
     const [record] = await knex(instance.tableName).where({ [instance.primaryKey]: lastInsert })
