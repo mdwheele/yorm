@@ -18,6 +18,7 @@ export async function up(knex: Knex) {
     table.string('username').unique()
     table.string('name')
     table.timestamps(false, true)
+    table.dateTime('deleted_at').defaultTo(null)
   })
 }
 

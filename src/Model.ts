@@ -80,6 +80,10 @@ export class Model {
     return null
   }
 
+  protected get softDeletes(): boolean {
+    return false
+  }
+
   protected get models() {
     return modelRegistry
   }
@@ -112,7 +116,13 @@ export class Model {
     Model.#internalConstructor = true
     const model = new this
 
-    const [result] = await knex(model.tableName).count()
+    const builder = knex(model.tableName)
+
+    if (model.softDeletes) {
+      builder.whereNull('deleted_at')
+    }
+
+    const [result] = await builder.count()
 
     const [count] = Object.values(result)
 
@@ -231,11 +241,24 @@ export class Model {
     return await this.query(builder => builder)
   }
 
+  /**
+   * !!! IMPORTANT !!!
+   * For all queries, this should be the only method that interacts with Knex.
+   * 
+   * This method provides a flexible interface to add constraints to the underlying
+   * QueryBuilder instance. It's also where soft-deletions are accounted for on the 
+   * query side of things. Rather than implement that check in all the places, it's 
+   * better to do it here, but that means that all "reads" need to point here.
+   */
   static async query<T extends Model>(this: Constructor<T>, callback: (builder: Knex.QueryBuilder) => Promise<Array<any>>): Promise<T[]> {
     Model.#internalConstructor = true
     const model = new this
 
     const builder = knex(model.tableName)
+
+    if (model.softDeletes) {
+      builder.whereNull('deleted_at')
+    }
 
     const records = await callback(builder)
 
@@ -261,6 +284,21 @@ export class Model {
   }
 
   async delete(): Promise<void> {
+    const builder = knex(this.tableName)
+      .where({ [this.primaryKey]: this[this.primaryKey] })
+    
+    if (this.softDeletes) {
+      const now = new Date()
+      this.deleted_at = now
+      builder.update({ deleted_at: now })
+    } else {
+      builder.delete()
+    }
+
+    await builder
+  }
+
+  async forceDelete(): Promise<void> {
     await knex(this.tableName)
       .where({ [this.primaryKey]: this[this.primaryKey] })
       .delete()
