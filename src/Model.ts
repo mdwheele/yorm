@@ -164,16 +164,16 @@ export class Model {
     if (instance.newUniqueId !== null) {
       if (instance.newUniqueId === 'uuid') {
         /** @ts-ignore */
-        instance.id = uuid.v4()
+        instance[instance.primaryKey] = uuid.v4()
       } else if (instance.newUniqueId === 'ulid') {
         /** @ts-ignore */
-        instance.id = ulidx.ulid()
+        instance[instance.primaryKey] = ulidx.ulid()
       } else if (instance.newUniqueId === 'nanoid') {
         /** @ts-ignore */
-        instance.id = nanoid()
+        instance[instance.primaryKey] = nanoid()
       } else if (typeof instance.newUniqueId === 'string') {
         /** @ts-ignore */
-        instance.id = instance.newUniqueId
+        instance[instance.primaryKey] = instance.newUniqueId
       } else {
         throw new TypeError('Accessor `newUniqueId` must return a string.')
       }
