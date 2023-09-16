@@ -2,8 +2,20 @@
 
 YORM is a no-nonsense, super-simple and light-weight ORM built on top of [Knex](https://knexjs.org) and inspired by Laravel's [Eloquent ORM](https://laravel.com/docs/master/eloquent).
 
+```bash
+$ npm install yorm.js
+```
 
 ```js
+// CommonJS 
+const { Model } = require('yorm.js')
+
+// ESM
+import { Model } from 'yorm.js'
+```
+
+```js
+
 class Example extends Model {
   hello = 'Hello'
   world = 'World'
