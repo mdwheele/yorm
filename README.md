@@ -136,6 +136,34 @@ class User extends Model {
 }
 ```
 
+## I want to use those fancy UUID / ULID things
+
+Well good freakin' news... YORM lets you do whatever you want... seriously. By default, we delegate to your DBMS of choice to do the right thing when it comes to auto-incrementing or database-generated UUIDs and things like that. However, there are times where you'll want to generate an ID before persistance to the database. For that, we have the `newUniqueId` accessor.
+
+```js
+class Example extends Model {
+  id
+
+  get newUniqueId() {
+    return 'foo'
+  }
+}
+```
+
+Identifiers must be returned as strings. You have control over generation of identifiers. That means it's up to you to make sure they're unique!
+
+To make things simpler, we have some out-of-the-box support for [UUID](https://github.com/uuidjs/uuid), [ULID](https://github.com/perry-mitchell/ulidx) (which are lexicographically sortable), and [nanoid](https://github.com/ai/nanoid). To use these, just return `uuid`, `ulid`, or `nanoid`, respectively. 
+
+```js
+class Example extends Model {
+  id
+
+  get newUniqueId() {
+    return 'uuid' // '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
+  }
+}
+```
+
 ## What about circular dependencies?
 
 It's very, very common to want to have two models that relate to one another. Imagine a "user has posts", but a "post belongs to a user". Unfortunately, in Node, you run into all sorts of funky issues when you have two modules require one another. Instead, YORM advises to create an `index.js` file wherever you keep your models at. This file will re-export all of your models and at the same time, `register` all of the models with one another.
