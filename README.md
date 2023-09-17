@@ -203,7 +203,7 @@ class User extends Model {
 
 ## How do I tell YORM about my `knex` instance?
 
-Wherever you set up your application's shared `knex` instance, just call `Model.useKnex(knex)` when it's ready. This tells YORM to use that instance of `knex`.
+Wherever you set up your application's shared `knex` instance, just call `Model.boot(knex)` when it's ready. This tells YORM to use that instance of `knex`.
 
 ```js
 const { knex } = require('knex')
@@ -211,9 +211,46 @@ const knexfile = require('./knexfile.js')
 
 const { Model } = require('yorm')
 
-Model.useKnex(knex(knexfile))
+Model.boot(knex(knexfile))
 
 module.exports = knex
+```
+
+## Softest of soft deletes
+
+It's somewhat common to support features for "undo"-ing deletes. This is usually accomplished by replacing `DELETE FROM {table} WHERE ...` statements with an `UPDATE SET deleted_at = NOW() WHERE ...` and then having every query function account for this field. If `deleted_at` is `NULL`, the record exists. Otherwise, you have the date and time that the record was deleted.
+
+```js
+class SoftDelete extends Model {
+  id
+  deleted_at
+
+  get softDeletes() { return true }
+}
+
+const model = await SoftDelete.create()
+
+await model.delete() // UPDATE softdeletes SET deleted_at = NOW() WHERE id = 'foo'
+```
+
+**Customizing the field name**
+
+You can override the default `deleted_at` field name can be done globally or per-model. You can also set a default name globally and then override in specific models.
+
+To override globally, use the `deletedAtColumn` option when you call `Model.boot(...)`:
+
+```js
+Model.boot(knex, { 
+  deletedAtColumn: 'deletedAt'
+})
+```
+
+To set this value per-model, override the `deletedAtColumn` accessor:
+
+```js
+get deletedAtColumn() {
+  return 'deleted_date'
+}
 ```
 
 ## BuT wHaT aBoUt ReLaTiOnShIpS!?!

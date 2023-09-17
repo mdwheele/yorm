@@ -12,9 +12,13 @@ interface Constructor<M> {
 
 type SupportedUniqueId = null | string | 'uuid' | 'ulid' | 'nanoid'
 
+type ConfigOptions = {
+  deletedAtColumn?: string,
+}
+
 /**
  * The Knex instance that will be used by all YORM models. This is set through 
- * Model.useKnex(...) method and should not be changed after the fact.
+ * Model.boot(...) method and should not be changed after the fact.
  */
 let knex: Knex
 
@@ -48,6 +52,7 @@ function trackChanges<T extends Model>(object: T): T {
 export class Model {
   [key: string]: any
 
+  static #deletedAtColumn: string
   static #internalConstructor: boolean = false
 
   constructor() {
@@ -60,8 +65,10 @@ export class Model {
     Model.#internalConstructor = false
   }
 
-  static useKnex(instance: Knex): void {
+  static boot(instance: Knex, options: ConfigOptions = {}): void {
     knex = instance
+
+    Model.#deletedAtColumn = options.deletedAtColumn || 'deleted_at'
   }
 
   static register(models): void {
@@ -84,8 +91,8 @@ export class Model {
     return false
   }
   
-  protected get deletedAtKey() {
-    return 'deleted_at'
+  protected get deletedAtColumn(): string {
+    return Model.#deletedAtColumn
   }
 
   protected get models() {
@@ -123,7 +130,7 @@ export class Model {
     const builder = knex(model.tableName)
 
     if (model.softDeletes) {
-      builder.whereNull(model.deletedAtKey)
+      builder.whereNull(model.deletedAtColumn)
     }
 
     const [result] = await builder.count()
@@ -209,7 +216,7 @@ export class Model {
 
     if (instance.softDeletes) {
       /** @ts-ignore */
-      instance[instance.deletedAtKey] = null
+      instance[instance.deletedAtColumn] = null
     }
 
     Object.assign(instance, instance.deserialize(attributes))
@@ -268,7 +275,7 @@ export class Model {
     const builder = knex(model.tableName)
 
     if (model.softDeletes) {
-      builder.whereNull(model.deletedAtKey)
+      builder.whereNull(model.deletedAtColumn)
     }
 
     const records = await callback(builder)
@@ -300,8 +307,8 @@ export class Model {
     
     if (this.softDeletes) {
       const now = new Date()
-      this[this.deletedAtKey] = now
-      builder.update({ [this.deletedAtKey]: now })
+      this[this.deletedAtColumn] = now
+      builder.update({ [this.deletedAtColumn]: now })
     } else {
       builder.delete()
     }
