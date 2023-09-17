@@ -83,6 +83,10 @@ export class Model {
   protected get softDeletes(): boolean {
     return false
   }
+  
+  protected get deletedAtKey() {
+    return 'deleted_at'
+  }
 
   protected get models() {
     return modelRegistry
@@ -119,7 +123,7 @@ export class Model {
     const builder = knex(model.tableName)
 
     if (model.softDeletes) {
-      builder.whereNull('deleted_at')
+      builder.whereNull(model.deletedAtKey)
     }
 
     const [result] = await builder.count()
@@ -203,6 +207,11 @@ export class Model {
       }
     }
 
+    if (instance.softDeletes) {
+      /** @ts-ignore */
+      instance[instance.deletedAtKey] = null
+    }
+
     Object.assign(instance, instance.deserialize(attributes))
 
     return trackChanges<T>(instance)
@@ -259,7 +268,7 @@ export class Model {
     const builder = knex(model.tableName)
 
     if (model.softDeletes) {
-      builder.whereNull('deleted_at')
+      builder.whereNull(model.deletedAtKey)
     }
 
     const records = await callback(builder)
@@ -291,8 +300,8 @@ export class Model {
     
     if (this.softDeletes) {
       const now = new Date()
-      this.deleted_at = now
-      builder.update({ deleted_at: now })
+      this[this.deletedAtKey] = now
+      builder.update({ [this.deletedAtKey]: now })
     } else {
       builder.delete()
     }

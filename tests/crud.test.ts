@@ -75,6 +75,33 @@ test('soft deletes', async () => {
   expect(await User.count()).toBe(0)
 })
 
+test('soft delete with custom key', async () => {
+  class CustomKey extends Model {
+    id
+    deletedAt
+
+    get deletedAtKey() {
+      return 'deletedAt'
+    }
+
+    get softDeletes() {
+      return true
+    }
+
+    get tableName() {
+      return 'custom_deleted_at'
+    }
+  }
+
+  const model = await CustomKey.create()
+
+  expect(model.deletedAt).toBeNull()
+
+  await model.delete()
+
+  expect(model.deletedAt).not.toBeNull()
+})
+
 afterAll(() => {
   return knex.destroy()
 })
