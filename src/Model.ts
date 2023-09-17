@@ -1,7 +1,7 @@
 import { Knex } from 'knex'
 import pluralize from 'pluralize'
 import etag from 'etag'
-import { pick } from 'lodash'
+import { pick, omit } from 'lodash'
 import * as uuid from 'uuid'
 import ulidx from 'ulidx'
 import { nanoid } from 'nanoid'
@@ -87,6 +87,10 @@ export class Model {
     return null
   }
 
+  protected get hidden(): string[] {
+    return []
+  }
+
   protected get softDeletes(): boolean {
     return false
   }
@@ -149,7 +153,7 @@ export class Model {
   }
 
   toJSON() {
-    return this
+    return omit(this, this.hidden)
   }
 
   get etag(): string {
