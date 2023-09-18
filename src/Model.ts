@@ -1,7 +1,7 @@
 import { Knex } from 'knex'
 import pluralize from 'pluralize'
 import etag from 'etag'
-import { pick, omit } from 'lodash'
+import { pick, omit, cloneDeep } from 'lodash'
 import * as uuid from 'uuid'
 import ulidx from 'ulidx'
 import { nanoid } from 'nanoid'
@@ -157,7 +157,7 @@ export class Model {
   }
 
   get etag(): string {
-    const clone = structuredClone(this)
+    const clone = cloneDeep(this)
 
     return etag(JSON.stringify(clone))
   }
