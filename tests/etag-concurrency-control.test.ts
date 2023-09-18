@@ -32,6 +32,38 @@ async function ChangeUsername(id, username, etag) {
   await user.save()
 }
 
+test('etag considers enumerable properties regardless of toJSON masking', () => {
+  class VisiblePassword extends Model {
+    id = 1
+    username = 'user'
+    password = 'secret'
+  }
+
+  class HiddenPassword extends Model {
+    id = 1
+    username = 'user'
+    password = 'secret'
+
+    get hidden() {
+      return ['password']
+    }
+  }
+
+  const visible = VisiblePassword.make()
+  const hidden = HiddenPassword.make()
+
+  expect(JSON.stringify(visible)).toContain('secret')
+  expect(JSON.stringify(hidden)).not.toContain('secret')
+
+  // However, the etags should be the same, since we consider properties
+  // on the actual objects, not what gets transformed by .toJSON()
+  expect(visible.etag).toEqual(hidden.etag)
+
+  // Verify that calling etag (which removes the toJSON method from an 
+  // instance clone) did not remove the original instance's toJSON.
+  expect(JSON.stringify(hidden)).not.toContain('secret')
+})
+
 test('etags can be used to implement optimistic locking', async () => {
   const user = await User.create({ name: 'Example User', username: 'user@example.com' })
 

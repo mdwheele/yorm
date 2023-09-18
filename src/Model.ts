@@ -158,7 +158,7 @@ export class Model {
 
   get etag(): string {
     const clone = cloneDeep(this)
-
+    clone.toJSON = undefined    
     return etag(JSON.stringify(clone))
   }
 
