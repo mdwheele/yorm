@@ -272,7 +272,7 @@ export class Model {
    * query side of things. Rather than implement that check in all the places, it's 
    * better to do it here, but that means that all "reads" need to point here.
    */
-  static async query<T extends Model>(this: Constructor<T>, callback: (builder: Knex.QueryBuilder) => Promise<Array<any>>): Promise<T[]> {
+  static async query<T extends Model>(this: Constructor<T>, callback: (builder: Knex.QueryBuilder) => Knex.QueryBuilder): Promise<T[]> {
     Model.#internalConstructor = true
     const model = new this
 
@@ -326,11 +326,34 @@ export class Model {
       .delete()
   }
 
+  async restore(): Promise<void> {
+    if (!this.softDeletes) {
+      return
+    }
+
+    this[this.deletedAtColumn] = null
+
+    await knex(this.tableName)
+      .where({ [this.primaryKey]: this[this.primaryKey] })
+      .update({ [this.deletedAtColumn]: null })
+  }
+
   static async delete(): Promise<void> {
     Model.#internalConstructor = true
     const model = new this
 
     await knex(model.tableName).delete()
+  }
+
+  static async restore(callback: (builder: Knex.QueryBuilder) => void): Promise<void> {
+    Model.#internalConstructor = true
+    const model = new this
+
+    const query = knex(model.tableName)
+    
+    callback(query)
+
+    await query.update({ [model.deletedAtColumn]: null })
   }
 
   protected async hasMany<T extends Model>(model: Constructor<T>, foreignKey?: string, localKey?: string): Promise<T[]> {

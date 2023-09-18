@@ -15,9 +15,6 @@ class User extends Model {
   username: string
   created_at: Date
   updated_at: Date
-  deleted_at: Date
-
-  get softDeletes() { return true }
 }
 
 test('Create, Read, Update, and Delete model operations', async () => {
@@ -35,7 +32,7 @@ test('Create, Read, Update, and Delete model operations', async () => {
 
   expect((await User.find(susan.id)).name).toBe('Susan A. Longsworth')
 
-  await susan.forceDelete()
+  await susan.delete()
 
   expect(await User.count()).toBe(0)
 })
@@ -50,56 +47,11 @@ test('firstOrCreate', async () => {
   expect(susan.id).toBe(susanAlreadyExists.id)
   expect(await User.count()).toBe(1)
 
-  await susan.forceDelete()
+  await susan.delete()
 })
 
 test('findOrFail', () => {
   expect(User.findOrFail(uuid.v4())).rejects.toThrow('Model not found')
-})
-
-test('soft deletes', async () => {
-  const user = await User.create({ username: 'user@example.com' })
-
-  expect(user.deleted_at).toBeNull()
-
-  await user.delete()
-
-  expect(user.deleted_at).not.toBeNull()
-
-  expect(await User.find(user.id)).toBe(null)
-
-  // There's still a row in the table...
-  expect(await knex('users').count()).toEqual([{count: "1"}])
-
-  // But YORM treats it as GONE.
-  expect(await User.count()).toBe(0)
-})
-
-test('soft delete with custom key', async () => {
-  class CustomKey extends Model {
-    id
-    deletedAt
-
-    get deletedAtColumn() {
-      return 'deletedAt'
-    }
-
-    get softDeletes() {
-      return true
-    }
-
-    get tableName() {
-      return 'custom_deleted_at'
-    }
-  }
-
-  const model = await CustomKey.create()
-
-  expect(model.deletedAt).toBeNull()
-
-  await model.delete()
-
-  expect(model.deletedAt).not.toBeNull()
 })
 
 afterAll(() => {

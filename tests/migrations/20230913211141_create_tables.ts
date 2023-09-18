@@ -18,7 +18,12 @@ export async function up(knex: Knex) {
     table.string('username').unique()
     table.string('name')
     table.timestamps(false, true)
-    table.dateTime('deleted_at').defaultTo(null)
+  })
+
+  await knex.schema.createTable('users_soft_deletes', table => {
+    table.uuid('id').defaultTo(knex.fn.uuid()).primary()
+    table.string('username').unique()
+    table.datetime('deleted_at').defaultTo(null)
   })
 
   await knex.schema.createTable('custom_deleted_at', table => {
