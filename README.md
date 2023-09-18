@@ -253,6 +253,21 @@ get deletedAtColumn() {
 }
 ```
 
+**Restoring deleted models**
+
+If you have an instance of a model that was _just deleted_, you can call its `.restore()` method and it will be restored.
+
+More commonly, you'll be recovering a model that was deleted in the past where you _do not_ have an instance. In these cases, you can use the static version of the same method to restore ALL models matching specific criteria:
+
+```js
+// Restore all users deleted on or after Jan 1st, 2022
+await User.restore(query => {
+  query.where('deleted_at', '>=', '2022-01-01')
+})
+```
+
+`Model.restore(...)` accepts a callback which is given the current Knex query builder instance. Anything you can do with Knex as far as querying goes can be done here. Just don't do weird stuff like `query.where(...).delete().select('*')`. I'm not going to stop you, but that probably blows chunks.
+
 ## BuT wHaT aBoUt ReLaTiOnShIpS!?!
 
 Thought you'd never ask! YORM supports the usual relationship types:
@@ -322,3 +337,64 @@ class Post extends Model {
 ```
 
 A "Belongs To" relationship is the inverse of a One-to-Many relationship. If a User has-many Posts, then this is a way to get an individual Post's author through that same relationship.
+
+## Hiding model properties from JSON
+
+There are scenarios where you need to have a property on a model that shouldn't be shown in your API. For example, the `password` field on a `User` model. 
+
+You can already override a model's `toJSON()` method to support this use-case, but you have to remember to do it and when you're only hiding a single property, it feels like a lot of boilerplate.
+
+If you define a `hidden` accessor on your model that returns an array of field names, they will automatically be omitted from JSON output.
+
+```js
+class User extends Model {
+  id
+  username
+  password
+
+  get hidden() {
+    return ['password']
+  }
+}
+
+const user = User.make({ username: 'user', password: 'super.secret' })
+
+JSON.stringify(user) // { "username": "user" }
+```
+
+## Concurrency control through optimistic locking
+
+Imagine two requests modifying the same property on a model at the same time. Which one wins? How do you prevent this?
+
+YORM provides an easy-to-follow optimistic locking strategy through the use of [ETag (Entity Tag)](https://en.wikipedia.org/wiki/HTTP_ETag). An ETag is an identifier that represents a specific version (or state) of a model. This means that if you query the ETag of a model instance, change a property, then query the ETag again, that you will have two different ETags. This property allows us to know whether or not a model has changed since the client last queried an API. 
+
+You can communicate a resource's ETag with a client by sending the `ETag` response header. Clients can make conditional requests against a resource by sending an `If-Match` header set to the `ETag` value.
+
+```js
+// controllers/users.js
+
+// GET /users/{id}
+handlers.get = async (req, res) => {
+  const user = await User.find(req.params.id)
+
+  res.header('ETag', user.etag)
+
+  res.json(user)
+}
+
+// PUT /users/{id}
+handlers.update = async (req, res) => {
+  const user = await User.find(req.params.id)
+  
+  if (req.headers['If-Match'] !== user.etag) {
+    // 412 Precondition Failed 
+    throw new errors.PreconditionFailed(`User has been updated since last seen.`)
+  }
+
+  // Eehhhhhh, maybe don't do this. Mass assignment es peligrosa.
+  // But... I'm not going to stop you.
+  Object.assign(user, req.body) 
+
+  await user.save()
+}
+```
