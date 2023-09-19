@@ -2,6 +2,7 @@
   "name": "yorm.js",
   "version": "0.3.0",
   "description": "Yet Another JavaScript ORM",
+  "homepage": "https://github.com/mdwheele/yorm#readme",
   "scripts": {
     "test": "jest",
     "build": "rm -fr dist/* && tsc",
