@@ -69,8 +69,12 @@ export class Model {
     Model.#deletedAtColumn = options.deletedAtColumn
   }
 
-  static knex(instance: Knex): void {
-    knex = instance
+  static knex(instance: Knex): Knex {
+    if (instance) {
+      knex = instance
+    } else {
+      return knex
+    }
   }
 
   static register(models): void {
