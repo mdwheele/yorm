@@ -2,7 +2,7 @@ import knex from './knex'
 import { Model } from '../src/Model'
 
 beforeAll(async () => {
-  Model.knex(knex)
+  Model.bind(knex)
   await knex.raw(`DROP SCHEMA public CASCADE;`)
   await knex.raw(`CREATE SCHEMA public;`)
   await knex.migrate.latest()

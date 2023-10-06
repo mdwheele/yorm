@@ -1,3 +1,4 @@
+import knex from './knex'
 import { Model } from '../src/Model'
 
 class Puppy extends Model {

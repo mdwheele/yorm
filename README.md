@@ -203,7 +203,7 @@ class User extends Model {
 
 ## How do I tell YORM about my `knex` instance?
 
-Wherever you set up your application's shared `knex` instance, just call `Model.knex(knex)` when it's ready. This tells YORM to use that instance of `knex`.
+Wherever you set up your application's shared `knex` instance, just call `Model.bind(knex)` when it's ready. This tells YORM to use that instance of `knex`.
 
 ```js
 const { knex } = require('knex')
@@ -211,7 +211,7 @@ const knexfile = require('./knexfile.js')
 
 const { Model } = require('yorm')
 
-Model.knex(knex(knexfile))
+Model.bind(knex(knexfile))
 
 module.exports = knex
 ```
@@ -237,10 +237,10 @@ await model.delete() // UPDATE softdeletes SET deleted_at = NOW() WHERE id = 'fo
 
 You can override the default `deleted_at` field name can be done globally or per-model. You can also set a default name globally and then override in specific models.
 
-To override globally, use the `deletedAtColumn` option when you call `Model.knex(...)`:
+To override globally, use the `deletedAtColumn` option when you call `Model.bind(...)`:
 
 ```js
-Model.knex(knex, { 
+Model.bind(knex, { 
   deletedAtColumn: 'deletedAt'
 })
 ```

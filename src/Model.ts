@@ -17,12 +17,6 @@ type ConfigOptions = {
 }
 
 /**
- * The Knex instance that will be used by all YORM models. This is set through 
- * Model.knex(...) method and should not be changed after the fact.
- */
-let knex: Knex
-
-/**
  * This is provided to all child classes as `this.models`. This pattern
  * allows developers to "register" models with one another without creating
  * circular dependencies in the module loader. Nothing should touch this except
@@ -54,6 +48,7 @@ export class Model {
 
   static #deletedAtColumn: string = 'deleted_at'
   static #internalConstructor: boolean = false
+  static knex: Knex = undefined
 
   constructor() {
     if (!Model.#internalConstructor) {
@@ -61,20 +56,22 @@ export class Model {
     }
 
     Object.defineProperty(this, $dirty, { enumerable: false, configurable: false, value: new Set() })
+    Object.defineProperty(this, 'knex', { enumerable: false, configurable: false,  writable: true, value: undefined })
 
     Model.#internalConstructor = false
+  }
+
+  get knex() {
+    /** @ts-ignore */
+    return this.constructor.knex
   }
 
   static config(options: ConfigOptions = {}): void {
     Model.#deletedAtColumn = options.deletedAtColumn
   }
 
-  static knex(instance: Knex): Knex {
-    if (instance) {
-      knex = instance
-    } else {
-      return knex
-    }
+  static bind(instance: Knex): void {
+    this.knex = instance
   }
 
   static register(models): void {
@@ -137,7 +134,7 @@ export class Model {
     Model.#internalConstructor = true
     const model = new this
 
-    const builder = knex(model.tableName)
+    const builder = this.knex(model.tableName)
 
     if (model.softDeletes) {
       builder.whereNull(model.deletedAtColumn)
@@ -184,7 +181,8 @@ export class Model {
     /** @ts-ignore */
     const instance = this.make(attributes)
 
-    const [id] = await knex(instance.tableName)
+    /** @ts-ignore */
+    const [id] = await this.knex(instance.tableName)
       .returning([instance.primaryKey])
       .insert(instance.serialize())
 
@@ -192,7 +190,8 @@ export class Model {
     // TODO: Look into this. This works for PostgreSQL.
     const { id: lastInsert } = instance[instance.primaryKey] || id
 
-    const [record] = await knex(instance.tableName).where({ [instance.primaryKey]: lastInsert })
+    /** @ts-ignore */
+    const [record] = await this.knex(instance.tableName).where({ [instance.primaryKey]: lastInsert })
 
     /** @ts-ignore */
     const freshInstance = this.make(record)
@@ -283,7 +282,8 @@ export class Model {
     Model.#internalConstructor = true
     const model = new this
 
-    const builder = knex(model.tableName)
+    /** @ts-ignore */
+    const builder = this.knex(model.tableName)
 
     if (model.softDeletes) {
       builder.whereNull(model.deletedAtColumn)
@@ -305,7 +305,8 @@ export class Model {
       return
     }
 
-    await knex(this.tableName)
+    /** @ts-ignore */
+    await this.constructor.knex(this.tableName)
       .where({ [this.primaryKey]: this[this.primaryKey] })
       .update(pick(this.serialize(), this.wasChanged()))
 
@@ -313,7 +314,8 @@ export class Model {
   }
 
   async delete(): Promise<void> {
-    const builder = knex(this.tableName)
+    /** @ts-ignore */
+    const builder = this.constructor.knex(this.tableName)
       .where({ [this.primaryKey]: this[this.primaryKey] })
     
     if (this.softDeletes) {
@@ -328,7 +330,8 @@ export class Model {
   }
 
   async forceDelete(): Promise<void> {
-    await knex(this.tableName)
+    /** @ts-ignore */
+    await this.constructor.knex(this.tableName)
       .where({ [this.primaryKey]: this[this.primaryKey] })
       .delete()
   }
@@ -340,7 +343,8 @@ export class Model {
 
     this[this.deletedAtColumn] = null
 
-    await knex(this.tableName)
+    /** @ts-ignore */
+    await this.constructor.knex(this.tableName)
       .where({ [this.primaryKey]: this[this.primaryKey] })
       .update({ [this.deletedAtColumn]: null })
   }
@@ -349,14 +353,16 @@ export class Model {
     Model.#internalConstructor = true
     const model = new this
 
-    await knex(model.tableName).delete()
+    /** @ts-ignore */
+    await this.constructor.knex(model.tableName).delete()
   }
 
   static async restore(callback: (builder: Knex.QueryBuilder) => void): Promise<void> {
     Model.#internalConstructor = true
     const model = new this
 
-    const query = knex(model.tableName)
+    /** @ts-ignore */
+    const query = this.knex(model.tableName)
     
     callback(query)
 
@@ -386,7 +392,8 @@ export class Model {
     const fk = foreignKey || `${table}.${this.tableName}_id`
     const pk = localKey || this.primaryKey
 
-    const records = await knex(table).where({ [fk]: this[pk] })
+    /** @ts-ignore */
+    const records = await this.constructor.knex(table).where({ [fk]: this[pk] })
   
     return records.map(record => {
       Model.#internalConstructor = true
@@ -420,7 +427,8 @@ export class Model {
     const fk = foreignKey || `${foreignTable}.${this.tableName}_id`
     const pk = localKey || this.primaryKey
 
-    const [record] = await knex(foreignTable)
+    /** @ts-ignore */
+    const [record] = await this.constructor.knex(foreignTable)
       .where({ [fk]: this[pk] })
       .limit(1)
   
@@ -449,7 +457,8 @@ export class Model {
     const pk = belongsToKey || `${table}.${modelInstance.primaryKey}`
     const lk = localKey || `${table}_id`
 
-    const q = knex(table).where({ [pk]: this[lk] })
+    /** @ts-ignore */
+    const q = this.constructor.knex(table).where({ [pk]: this[lk] })
 
     const [record] = await q
 
