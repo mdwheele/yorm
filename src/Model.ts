@@ -52,7 +52,7 @@ function trackChanges<T extends Model>(object: T): T {
 export class Model {
   [key: string]: any
 
-  static #deletedAtColumn: string
+  static #deletedAtColumn: string = 'deleted_at'
   static #internalConstructor: boolean = false
 
   constructor() {
@@ -65,10 +65,12 @@ export class Model {
     Model.#internalConstructor = false
   }
 
+  static config(options: ConfigOptions = {}): void {
+    Model.#deletedAtColumn = options.deletedAtColumn
+  }
+
   static boot(instance: Knex, options: ConfigOptions = {}): void {
     knex = instance
-
-    Model.#deletedAtColumn = options.deletedAtColumn || 'deleted_at'
   }
 
   static register(models): void {
@@ -198,7 +200,6 @@ export class Model {
   static make<T extends Model>(this: Constructor<T>, attributes: object = {}): T {
     Model.#internalConstructor = true
     const instance = new this
-    Object.seal(instance)
 
     if (instance.newUniqueId !== null) {
       if (instance.newUniqueId === 'uuid') {
@@ -222,6 +223,8 @@ export class Model {
       /** @ts-ignore */
       instance[instance.deletedAtColumn] = null
     }
+
+    Object.seal(instance)
 
     Object.assign(instance, instance.deserialize(attributes))
 
