@@ -1,5 +1,3 @@
-import { Knex } from 'knex'
-
 import { Model } from './Model'
 
 export * from './Model'
