@@ -18,7 +18,7 @@ type ConfigOptions = {
 
 /**
  * The Knex instance that will be used by all YORM models. This is set through 
- * Model.boot(...) method and should not be changed after the fact.
+ * Model.knex(...) method and should not be changed after the fact.
  */
 let knex: Knex
 
@@ -69,7 +69,7 @@ export class Model {
     Model.#deletedAtColumn = options.deletedAtColumn
   }
 
-  static boot(instance: Knex, options: ConfigOptions = {}): void {
+  static knex(instance: Knex): void {
     knex = instance
   }
 

@@ -3,7 +3,7 @@ import { Model } from '../src/Model'
 import * as uuid from 'uuid'
 
 beforeAll(async () => {
-  Model.boot(knex)
+  Model.knex(knex)
   await knex.raw(`DROP SCHEMA public CASCADE;`)
   await knex.raw(`CREATE SCHEMA public;`)
   await knex.migrate.latest()
