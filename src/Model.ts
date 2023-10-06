@@ -198,6 +198,7 @@ export class Model {
 
   static make<T extends Model>(this: Constructor<T>, attributes: object = {}): T {
     Model.#internalConstructor = true
+    /** @ts-ignore */
     const instance = new this
 
     if (instance.newUniqueId !== null) {
