@@ -216,6 +216,35 @@ Model.bind(knex(knexfile))
 module.exports = knex
 ```
 
+## Transactional transactions transacting!
+
+Under the hood, YORM models are just a set of utility functions on top of a Knex instance. We use Knex to implement transactions. Normally, this means that we would have to create a transaction context and pass that around to every model that needs to take part in the transaction. 
+
+It's going to feel weird (and we're looking for a better interface), but to avoid having to remember to bind (and unbind) the transaction context to specific models, we took the following approach:
+
+```js
+const { transaction } = require('yorm')
+
+/**
+ * Use `transaction` to start a transaction. Pass in each Model 
+ * class you want to be available to participate in the transaction. 
+ * 
+ * The last argument is always a callback that receives Model classes
+ * (in the order you provided them) that have been bound to the 
+ * transaction. In this way, the Model classes are able to participate
+ * in the transaction within the scope of the provided callback.
+ */
+await transaction(User, Post, async (User, Post) => {
+  // User inside the closure is not the same as User outside
+  // the closure. The inside User has the Knex transaction bound.
+  const user = await User.create()
+  await Post.create({ user_id: user.id, title: 'Created if the User is successfully created.' })
+
+  // Any exception / error thrown inside the closure will rollback. Otherwise, 
+  // the transaction is implicitly committed.
+})
+```
+
 ## Softest of soft deletes
 
 It's somewhat common to support features for "undo"-ing deletes. This is usually accomplished by replacing `DELETE FROM {table} WHERE ...` statements with an `UPDATE SET deleted_at = NOW() WHERE ...` and then having every query function account for this field. If `deleted_at` is `NULL`, the record exists. Otherwise, you have the date and time that the record was deleted.
