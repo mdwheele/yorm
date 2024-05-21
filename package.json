@@ -1,6 +1,6 @@
 {
   "name": "yorm.js",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Yet Another JavaScript ORM",
   "homepage": "https://github.com/mdwheele/yorm#readme",
   "scripts": {
