@@ -178,13 +178,13 @@ export class Model {
     const instance = this.make(attributes)
 
     /** @ts-ignore */
-    const [id] = await this.knex(instance.tableName)
+    const [{ id }] = await this.knex(instance.tableName)
       .returning([instance.primaryKey])
       .insert(instance.serialize())
 
     // The form of this is likely driver specific.
     // TODO: Look into this. This works for PostgreSQL.
-    const { id: lastInsert } = instance[instance.primaryKey] || id
+    const lastInsert = instance[instance.primaryKey] || id
 
     /** @ts-ignore */
     const [record] = await this.knex(instance.tableName).where({ [instance.primaryKey]: lastInsert })
