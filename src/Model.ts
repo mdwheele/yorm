@@ -1,468 +1,875 @@
-import { Knex } from 'knex'
-import pluralize from 'pluralize'
-import etag from 'etag'
-import { pick, omit, cloneDeep } from 'lodash'
-import * as uuid from 'uuid'
-import ulidx from 'ulidx'
-import { nanoid } from 'nanoid'
+import { v4 as uuidv4 } from 'uuid'
+import { ulid } from 'ulid'
+import crypto from 'crypto'
+import type { Knex } from 'knex'
+import { nanoid } from "nanoid"
+import RelationshipManager from './RelationshipManager.js'
+import QueryBuilder from './QueryBuilder.js'
 
-interface Constructor<M> {
-  new (...args: any[]): M
+// Types
+export type KeyType = 'uuid' | 'ulid' | 'nanoid' | 'increments'
+export type AttributeValue = string | number | boolean | Date | null | undefined | any[]
+export type Attributes = Record<string, AttributeValue>
+
+export interface ModelConstructor<T extends Model = Model> {
+  new (attributes?: Attributes): T
+  table?: string | null
+  primaryKey: string
+  keyType: KeyType
+  timestamps: boolean
+  softDeletes: boolean
+  optimisticLocking: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt: string
+  versionColumn: string
+  hidden: string[]
+  visible: string[]
+  knex: Knex | null
+  configure(knexInstance: Knex): void
+  getKnex(): Knex
+  getTableName(): string
+  getKeyName(): string
+  generateKey(): string | null
+  query(): any // QueryBuilder<T>
+  all(): Promise<T[]>
+  find(id: any): Promise<T | null>
+  findOrFail(id: any): Promise<T>
+  where(column: string, operator?: any, value?: any): any // QueryBuilder<T>
+  whereIn(column: string, values: any[]): any // QueryBuilder<T>
+  create(attributes: Attributes): Promise<T>
+  firstOrCreate(attributes: Attributes, values?: Attributes): Promise<T>
+  updateOrCreate(attributes: Attributes, values?: Attributes): Promise<T>
 }
 
-type SupportedUniqueId = null | string | 'uuid' | 'ulid' | 'nanoid'
-
-type ConfigOptions = {
-  deletedAtColumn?: string,
+export interface Relationship<T extends Model = Model> {
+  relationName?: string
+  get(): Promise<T | T[] | null>
+  first(): Promise<T | null>
+  where(column: string, operator?: any, value?: any): Relationship<T>
+  with(relations: string | string[] | Record<string, ((query: any) => void) | null>): Relationship<T>
+  // Add promise-like behavior for direct calls
+  then<TResult1 = T | T[] | null, TResult2 = never>(
+    onfulfilled?: ((value: T | T[] | null) => TResult1 | PromiseLike<TResult1>) | undefined | null,
+    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null
+  ): Promise<TResult1 | TResult2>
 }
 
-/**
- * This is provided to all child classes as `this.models`. This pattern
- * allows developers to "register" models with one another without creating
- * circular dependencies in the module loader. Nothing should touch this except
- * for `Model`.
- */
-let modelRegistry
+class Model {
+  public attributes: Attributes = {}
+  public original: Attributes = {}
+  public relations: Record<string, any> = {}
+  public exists: boolean = false
+  public wasRecentlyCreated: boolean = false
+  public timestamps: boolean
+  public softDeletes: boolean
+  public optimisticLocking: boolean
 
-/**
- * Non-enumerable key to store a Set<string> for dirty-tracking in Model. 
- */
-const $dirty = Symbol('dirty')
+  // Static configuration properties
+  public static table: string | null = null
+  public static primaryKey: string = 'id'
+  public static keyType: KeyType = 'increments'
+  public static timestamps: boolean = true
+  public static softDeletes: boolean = false
+  public static optimisticLocking: boolean = false
+  public static createdAt: string = 'created_at'
+  public static updatedAt: string = 'updated_at'
+  public static deletedAt: string = 'deleted_at'
+  public static versionColumn: string = 'version'
+  public static hidden: string[] = []
+  public static visible: string[] = []
 
-function trackChanges<T extends Model>(object: T): T {
-  return new Proxy(object, {
-    set(object, key, value) {
-      if (object[key as any] !== value) {
-        object[$dirty as any].add(key)
-        /** @ts-ignore */
-        object[key as any] = value
-      }
+  // Knex instance - to be set by configure()
+  public static knex: Knex | null = null
 
-      return true
-    }
-  })
-}
+  // Transaction context - thread-local storage for current transaction
+  private static _currentTransaction: Knex.Transaction | null = null
 
-export class Model {
-  [key: string]: any
-
-  static #deletedAtColumn: string = 'deleted_at'
-  static #internalConstructor: boolean = false
-  static knex: Knex = undefined
-  knex: Knex = undefined
-
-  constructor() {
-    if (!Model.#internalConstructor) {
-      throw new TypeError(`Models cannot be manually constructed. Use ${this.constructor.name}.make() or ${this.constructor.name}.create()`)
-    }
-
-    Object.defineProperty(this, $dirty, { enumerable: false, configurable: false, value: new Set() })
-    Object.defineProperty(this, 'knex', { enumerable: false, configurable: false,  writable: true, value: Model.knex })
-
-    Model.#internalConstructor = false
-  }
-
-  static config(options: ConfigOptions = {}): void {
-    Model.#deletedAtColumn = options.deletedAtColumn
-  }
-
-  static bind(instance: Knex): void {
-    this.knex = instance
-  }
-
-  static register(models): void {
-    modelRegistry = models
-  }
-
-  protected get tableName(): string {
-    return pluralize(this.constructor.name).toLowerCase()
-  }
-
-  protected get primaryKey(): string {
-    return 'id'
-  }
-
-  protected get newUniqueId(): SupportedUniqueId {
-    return null
-  }
-
-  protected get hidden(): string[] {
-    return []
-  }
-
-  protected get softDeletes(): boolean {
-    return false
-  }
-  
-  protected get deletedAtColumn(): string {
-    return Model.#deletedAtColumn
-  }
-
-  protected get models() {
-    return modelRegistry
-  }
-
-  isDirty(fields: string | string[] = []): boolean {
-    const dirtyFields = this[$dirty as any]
-
-    if (!dirtyFields) {
-      return false
-    }
-
-    if (typeof fields === 'string') {
-      return dirtyFields.has(fields)
-    } else if (Array.isArray(fields) && fields.length > 0) {
-      return fields.some(field => this[$dirty as any].has(field))
-    } else {
-      return dirtyFields.size > 0
-    }
-  }
-
-  isClean(fields: string | string[] = []): boolean {
-    return !this.isDirty(fields)
-  }
-
-  wasChanged(): string[] {
-    return [...this[$dirty as any].values()]
-  }
-
-  static async count(): Promise<number> {
-    Model.#internalConstructor = true
-    const model = new this
-
-    const builder = this.knex(model.tableName)
-
-    if (model.softDeletes) {
-      builder.whereNull(model.deletedAtColumn)
-    }
-
-    const [result] = await builder.count()
-
-    const [count] = Object.values(result)
-
-    return Number(count)
-  }
-
-  serialize(): object {
-    return this
-  }
-
-  deserialize(record: object): object {
-    return record
-  }
-
-  toJSON() {
-    return omit(this, this.hidden)
-  }
-
-  get etag(): string {
-    const clone = cloneDeep(this)
-    clone.toJSON = undefined    
-    return etag(JSON.stringify(clone))
-  }
-
-  static async firstOrCreate<T extends Model>(this: Constructor<T>, attributes: object = {}): Promise<T> {
-    /** @ts-ignore */
-    const [existing] = await this.where(attributes)
-
-    if (existing) {
-      return existing
-    }
-
-    /** @ts-ignore */
-    return this.create(attributes)
-  }
-
-  static async create<T extends Model>(this: Constructor<T>, attributes: object = {}): Promise<T> {
-    /** @ts-ignore */
-    const instance = this.make(attributes)
-
-    /** @ts-ignore */
-    const [{ id }] = await this.knex(instance.tableName)
-      .returning([instance.primaryKey])
-      .insert(instance.serialize())
-
-    // The form of this is likely driver specific.
-    // TODO: Look into this. This works for PostgreSQL.
-    const lastInsert = instance[instance.primaryKey] || id
-
-    /** @ts-ignore */
-    const [record] = await this.knex(instance.tableName).where({ [instance.primaryKey]: lastInsert })
-
-    /** @ts-ignore */
-    const freshInstance = this.make(record)
-    Object.assign(freshInstance, freshInstance.deserialize(record))
+  constructor(attributes: Attributes = {}) {
+    this.timestamps = (this.constructor as typeof Model).timestamps ?? true
+    this.softDeletes = (this.constructor as typeof Model).softDeletes ?? false
+    this.optimisticLocking = (this.constructor as typeof Model).optimisticLocking ?? false
     
-    return freshInstance
+    // Initialize declared fields and set up proxies
+    this._initializeFields()
+    
+    this.fill(attributes)
+    this.syncOriginal()
   }
 
-  static make<T extends Model>(this: Constructor<T>, attributes: object = {}): T {
-    Model.#internalConstructor = true
-    /** @ts-ignore */
-    const instance = new this
+  // Configure the Knex instance for all models
+  public static configure(knexInstance: Knex): void {
+    Model.knex = knexInstance
+  }
 
-    if (instance.newUniqueId !== null) {
-      if (instance.newUniqueId === 'uuid') {
-        /** @ts-ignore */
-        instance[instance.primaryKey] = uuid.v4()
-      } else if (instance.newUniqueId === 'ulid') {
-        /** @ts-ignore */
-        instance[instance.primaryKey] = ulidx.ulid()
-      } else if (instance.newUniqueId === 'nanoid') {
-        /** @ts-ignore */
-        instance[instance.primaryKey] = nanoid()
-      } else if (typeof instance.newUniqueId === 'string') {
-        /** @ts-ignore */
-        instance[instance.primaryKey] = instance.newUniqueId
-      } else {
-        throw new TypeError('Accessor `newUniqueId` must return a string.')
-      }
+  // Get the configured Knex instance
+  public static getKnex(): Knex {
+    if (this._currentTransaction) {
+      return this._currentTransaction
     }
-
-    if (instance.softDeletes) {
-      /** @ts-ignore */
-      instance[instance.deletedAtColumn] = null
+    
+    if (!Model.knex) {
+      throw new Error('Model not configured. Call Model.configure(knexInstance) first.')
     }
-
-    Object.seal(instance)
-
-    Object.assign(instance, instance.deserialize(attributes))
-
-    return trackChanges<T>(instance)
-  }
-
-  static async find<T extends Model>(this: Constructor<T>, id: string | number): Promise<T> {
-    Model.#internalConstructor = true
-    const model = new this
-
-    /** @ts-ignore */
-    const [instance] = await this.where({ [model.primaryKey]: id })
-
-    if (!instance) {
-      return null
-    }
-
-    return trackChanges<T>(instance)
-  }
-
-  static async findOrFail<T extends Model>(this: Constructor<T>, id: string | number): Promise<T> {
-    /** @ts-ignore */
-    const instance = await this.find(id)
-
-    if (!instance) {
-      throw new Error('Model not found.')
-    }
-
-    return instance
-  }
-
-  static async where<T extends Model>(this: Constructor<T>, attributes: object): Promise<T[]> {
-    /** @ts-ignore */
-    return await this.query(builder => builder.where(attributes))
-  }
-
-  static async all<T extends Model>(this: Constructor<T>, id: string | number): Promise<T[]> {
-    /** @ts-ignore */
-    return await this.query(builder => builder)
+    return Model.knex
   }
 
   /**
-   * !!! IMPORTANT !!!
-   * For all queries, this should be the only method that interacts with Knex.
-   * 
-   * This method provides a flexible interface to add constraints to the underlying
-   * QueryBuilder instance. It's also where soft-deletions are accounted for on the 
-   * query side of things. Rather than implement that check in all the places, it's 
-   * better to do it here, but that means that all "reads" need to point here.
+   * Execute a callback within a database transaction
    */
-  static async query<T extends Model>(this: Constructor<T>, callback: (builder: Knex.QueryBuilder) => Knex.QueryBuilder): Promise<T[]> {
-    Model.#internalConstructor = true
-    const model = new this
-
-    /** @ts-ignore */
-    const builder = this.knex(model.tableName)
-
-    if (model.softDeletes) {
-      builder.whereNull(model.deletedAtColumn)
+  public static async transaction<T>(callback: (trx: Knex.Transaction) => Promise<T>): Promise<T> {
+    const knex = Model.knex
+    if (!knex) {
+      throw new Error('Model not configured. Call Model.configure(knexInstance) first.')
     }
 
-    const records = await callback(builder)
+    return await knex.transaction(async (trx: Knex.Transaction) => {
+      // Store previous transaction context
+      const previousTransaction = this._currentTransaction
+      
+      // Set new transaction context
+      this._currentTransaction = trx
 
-    return records.map(record => {
-      Model.#internalConstructor = true
-      const instance = new this
-      Object.seal(instance)
-      Object.assign(instance, instance.deserialize(record))
-      return trackChanges<T>(instance)
+      try {
+        const result = await callback(trx)
+        return result
+      } finally {
+        // Restore previous transaction context
+        this._currentTransaction = previousTransaction
+      }
     })
   }
 
-  async save(): Promise<void> {
-    if (this.isClean()) {
-      return
+  // Table name mapping
+  public static getTableName(): string {
+    if (this.table) {
+      return this.table
     }
-
-    /** @ts-ignore */
-    await this.knex(this.tableName)
-      .where({ [this.primaryKey]: this[this.primaryKey] })
-      .update(pick(this.serialize(), this.wasChanged()))
-
-    this[$dirty as any].clear()
-  }
-
-  async delete(): Promise<void> {
-    /** @ts-ignore */
-    const builder = this.knex(this.tableName)
-      .where({ [this.primaryKey]: this[this.primaryKey] })
     
-    if (this.softDeletes) {
-      const now = new Date()
-      this[this.deletedAtColumn] = now
-      builder.update({ [this.deletedAtColumn]: now })
+    // Convert PascalCase to snake_case and pluralize
+    const className = this.name
+    const snakeCase = className
+      .replace(/([A-Z])/g, '_$1')
+      .toLowerCase()
+      .substring(1)
+    
+    // Simple pluralization rules
+    if (snakeCase.endsWith('y')) {
+      return snakeCase.slice(0, -1) + 'ies'
+    } else if (snakeCase.endsWith('s') || snakeCase.endsWith('sh') || snakeCase.endsWith('ch')) {
+      return snakeCase + 'es'
     } else {
-      builder.delete()
+      return snakeCase + 's'
     }
-
-    await builder
   }
 
-  async forceDelete(): Promise<void> {
-    /** @ts-ignore */
-    await this.knex(this.tableName)
-      .where({ [this.primaryKey]: this[this.primaryKey] })
-      .delete()
+  public getTableName(): string {
+    return (this.constructor as typeof Model).getTableName()
   }
 
-  async restore(): Promise<void> {
-    if (!this.softDeletes) {
-      return
-    }
-
-    this[this.deletedAtColumn] = null
-
-    /** @ts-ignore */
-    await this.knex(this.tableName)
-      .where({ [this.primaryKey]: this[this.primaryKey] })
-      .update({ [this.deletedAtColumn]: null })
-  }
-
-  static async delete(): Promise<void> {
-    Model.#internalConstructor = true
-    const model = new this
-
-    /** @ts-ignore */
-    await this.knex(model.tableName).delete()
-  }
-
-  static async restore(callback: (builder: Knex.QueryBuilder) => void): Promise<void> {
-    Model.#internalConstructor = true
-    const model = new this
-
-    /** @ts-ignore */
-    const query = this.knex(model.tableName)
+  // Field initialization and proxy setup
+  private _initializeFields(): void {
+    // Get all declared fields from the class prototype
+    const declaredFields = this._getDeclaredFields()
     
-    callback(query)
-
-    await query.update({ [model.deletedAtColumn]: null })
+    // Set up getters and setters for each declared field
+    for (const fieldName of declaredFields) {
+      // Always create/recreate the proxy to ensure it works properly
+      this._createFieldProxy(fieldName)
+    }
   }
 
-  protected async hasMany<T extends Model>(model: Constructor<T>, foreignKey?: string, localKey?: string): Promise<T[]> {
-    let table: string
-
-    if (this.models[model.name] === undefined) {
-      throw new TypeError(`Invalid relationship model: ${model}`)
+  private _getDeclaredFields(): string[] {
+    const fields = new Set<string>()
+    
+    // Get all own property names from the instance
+    // This will include any declared fields that were set during construction
+    const ownProps = Object.getOwnPropertyNames(this)
+    for (const prop of ownProps) {
+      if (!prop.startsWith('_') && 
+          prop !== 'attributes' && 
+          prop !== 'original' && 
+          prop !== 'relations' && 
+          prop !== 'exists' && 
+          prop !== 'wasRecentlyCreated' && 
+          prop !== 'timestamps' && 
+          prop !== 'softDeletes' && 
+          prop !== 'optimisticLocking') {
+        fields.add(prop)
+      }
     }
 
-    Model.#internalConstructor = true
-    const instance = new model
-    table = instance.tableName
+    // Include common fields that should always be available
+    fields.add(this.getKeyName())
+    if (this.timestamps) {
+      fields.add(this.getCreatedAtColumn())
+      fields.add(this.getUpdatedAtColumn())
+    }
+    if (this.usesSoftDeletes()) {
+      fields.add(this.getDeletedAtColumn())
+    }
+    if (this.usesOptimisticLocking()) {
+      fields.add(this.getVersionColumn())
+    }
 
-    /**
-     * User-provided `foreignKey` will be used if provided.
-     * 
-     * If `foreignKey` is undefined, we use a pluralization convention
-     * to determine the foreign key on the joining table.
-     * 
-     * For example, if we have User.hasMany(Photo), then the foreign
-     * key field name will be `photos.user_id`.
-     */
-    const fk = foreignKey || `${table}.${this.tableName}_id`
-    const pk = localKey || this.primaryKey
+    // Also include any attributes that are already set
+    for (const key of Object.keys(this.attributes)) {
+      fields.add(key)
+    }
 
-    /** @ts-ignore */
-    const records = await this.knex(table).where({ [fk]: this[pk] })
-  
-    return records.map(record => {
-      Model.#internalConstructor = true
-      const instance = new model
-      Object.seal(instance)
-      Object.assign(instance, instance.deserialize(record))
-      return trackChanges<T>(instance)
+    return Array.from(fields)
+  }
+
+  private _createFieldProxy(fieldName: string): void {
+    Object.defineProperty(this, fieldName, {
+      get() {
+        return this.getAttribute(fieldName)
+      },
+      set(value: AttributeValue) {
+        this.setAttribute(fieldName, value)
+      },
+      enumerable: true,
+      configurable: true
     })
   }
 
-  protected async hasOne<T extends Model>(model: Constructor<T>, foreignKey?: string, localKey?: string): Promise<T> {
-    let foreignTable: string
-
-    if (this.models[model.name] === undefined) {
-      throw new TypeError(`Invalid relationship model: ${model}`)
-    }
-
-    Model.#internalConstructor = true
-    const foreignModel = new model
-    foreignTable = foreignModel.tableName
-
-    /**
-     * User-provided `foreignKey` will be used if provided.
-     * 
-     * If `foreignKey` is undefined, we use a pluralization convention
-     * to determine the foreign key on the joining table.
-     * 
-     * For example, if we have User.hasMany(Photo), then the foreign
-     * key field name will be `photos.user_id`.
-     */
-    const fk = foreignKey || `${foreignTable}.${this.tableName}_id`
-    const pk = localKey || this.primaryKey
-
-    /** @ts-ignore */
-    const [record] = await this.knex(foreignTable)
-      .where({ [fk]: this[pk] })
-      .limit(1)
-  
-    if (!record) {
-      return null
-    }
-
-    Model.#internalConstructor = true
-    const instance = new model
-    Object.seal(instance)
-    Object.assign(instance, instance.deserialize(record))
-    return trackChanges<T>(instance)
+  // Key management
+  public static getKeyName(): string {
+    return this.primaryKey
   }
 
-  protected async belongsTo<T extends Model>(model: Constructor<T>, localKey?: string | null, belongsToKey?: string | null): Promise<T> {
-    let table: string
+  public getKeyName(): string {
+    return (this.constructor as typeof Model).getKeyName()
+  }
 
-    if (this.models[model.name] === undefined) {
-      throw new TypeError(`Invalid relationship model: ${model}`)
+  public getKey(): AttributeValue {
+    return this.getAttribute(this.getKeyName())
+  }
+
+  // UUID/ULID generation
+  public static generateKey(): string | null {
+    switch (this.keyType) {
+      case 'uuid':
+        return uuidv4()
+      case 'ulid':
+        return ulid()
+      case 'nanoid':
+        return nanoid()
+      default:
+        return null // Let database handle auto-increment
+    }
+  }
+
+  // Attribute management
+  public fill(attributes: Attributes): this {
+    for (const [key, value] of Object.entries(attributes)) {
+      this.setAttribute(key, value)
+    }
+    return this
+  }
+
+  public getAttribute(key: string): AttributeValue {
+    // Check for custom getter
+    const getter = (this as any)[`get${this._studlyCase(key)}Attribute`]
+    if (typeof getter === 'function') {
+      return getter.call(this)
     }
 
-    Model.#internalConstructor = true
-    const modelInstance = new model
-    table = modelInstance.tableName
+    // Return from attributes
+    return this.attributes[key]
+  }
 
-    const pk = belongsToKey || `${table}.${modelInstance.primaryKey}`
-    const lk = localKey || `${table}_id`
+  public setAttribute(key: string, value: AttributeValue): this {
+    // Check for custom setter
+    const setter = (this as any)[`set${this._studlyCase(key)}Attribute`]
+    if (typeof setter === 'function') {
+      setter.call(this, value)
+      return this
+    }
 
-    /** @ts-ignore */
-    const q = this.knex(table).where({ [pk]: this[lk] })
+    // Set to attributes
+    this.attributes[key] = value
+    return this
+  }
 
-    const [record] = await q
+  // Convert snake_case to StudlyCase
+  private _studlyCase(str: string): string {
+    return str
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join('')
+  }
 
-    Model.#internalConstructor = true
-    const instance = new model
-    Object.seal(instance)
-    Object.assign(instance, instance.deserialize(record))
-    return trackChanges<T>(instance)
+  // Property access
+  public get(key: string): AttributeValue {
+    return this.getAttribute(key)
+  }
+
+  public set(key: string, value: AttributeValue): this {
+    return this.setAttribute(key, value)
+  }
+
+  // Change tracking
+  public isDirty(attributes?: string | string[] | null): boolean {
+    if (attributes) {
+      const attrs = Array.isArray(attributes) ? attributes : [attributes]
+      return attrs.some(attr => this.attributes[attr] !== this.original[attr])
+    }
+    
+    return Object.keys(this.attributes).some(key => 
+      this.attributes[key] !== this.original[key]
+    )
+  }
+
+  public isClean(attributes?: string | string[] | null): boolean {
+    return !this.isDirty(attributes)
+  }
+
+  public getDirty(): Attributes {
+    const dirty: Attributes = {}
+    for (const [key, value] of Object.entries(this.attributes)) {
+      if (value !== this.original[key]) {
+        dirty[key] = value
+      }
+    }
+    return dirty
+  }
+
+  public getChanges(): Attributes {
+    return this.getDirty()
+  }
+
+  public syncOriginal(): this {
+    this.original = { ...this.attributes }
+    return this
+  }
+
+  // Timestamps
+  public usesSoftDeletes(): boolean {
+    return this.softDeletes
+  }
+
+  public getCreatedAtColumn(): string {
+    return (this.constructor as typeof Model).createdAt
+  }
+
+  public getUpdatedAtColumn(): string {
+    return (this.constructor as typeof Model).updatedAt
+  }
+
+  public getDeletedAtColumn(): string {
+    return (this.constructor as typeof Model).deletedAt
+  }
+
+  public touch(): this {
+    if (this.timestamps) {
+      const now = new Date()
+      this.setAttribute(this.getUpdatedAtColumn(), now)
+    }
+    return this
+  }
+
+  // Optimistic locking
+  public usesOptimisticLocking(): boolean {
+    return this.optimisticLocking
+  }
+
+  public getVersionColumn(): string {
+    return (this.constructor as typeof Model).versionColumn
+  }
+
+  public generateETag(): string {
+    const data = JSON.stringify(this.attributes)
+    return crypto.createHash('md5').update(data).digest('hex')
+  }
+
+  // Serialization
+  public toJSON(): Attributes {
+    const attributes: Attributes = { ...this.attributes }
+    
+    // Add relations
+    for (const [key, relation] of Object.entries(this.relations)) {
+      if (relation && typeof relation.toJSON === 'function') {
+        attributes[key] = relation.toJSON()
+      } else if (Array.isArray(relation)) {
+        attributes[key] = relation.map(r => r && typeof r.toJSON === 'function' ? r.toJSON() : r)
+      } else {
+        attributes[key] = relation
+      }
+    }
+
+    const constructor = this.constructor as typeof Model
+    
+    // Apply visibility rules
+    if (constructor.visible.length > 0) {
+      const visible: Attributes = {}
+      for (const key of constructor.visible) {
+        if (key in attributes) {
+          visible[key] = attributes[key]
+        }
+      }
+      return visible
+    }
+
+    // Apply hidden rules
+    for (const key of constructor.hidden) {
+      delete attributes[key]
+    }
+
+    return attributes
+  }
+
+  // Database operations
+  public async save(): Promise<this> {
+    if (this.exists) {
+      return this.performUpdate()
+    } else {
+      return this.performInsert()
+    }
+  }
+
+  private async performInsert(): Promise<this> {
+    const attributes: Attributes = { ...this.attributes }
+    const constructor = this.constructor as typeof Model
+
+    // Generate primary key if needed
+    if (!attributes[this.getKeyName()] && constructor.keyType !== 'increments') {
+      attributes[this.getKeyName()] = constructor.generateKey()
+    }
+
+    // Add timestamps
+    if (this.timestamps) {
+      const now = new Date()
+      attributes[this.getCreatedAtColumn()] = now
+      attributes[this.getUpdatedAtColumn()] = now
+    }
+
+    // Add version for optimistic locking
+    if (this.usesOptimisticLocking()) {
+      attributes[this.getVersionColumn()] = 1
+    }
+
+    const knex = Model.getKnex()
+    const result = await knex(this.getTableName()).insert(attributes)
+
+    // Handle auto-increment keys
+    if (constructor.keyType === 'increments' && result[0]) {
+      attributes[this.getKeyName()] = result[0]
+      // Also set it directly on the instance to ensure proxy works
+      this.setAttribute(this.getKeyName(), result[0])
+    }
+
+    this.attributes = attributes
+    this.exists = true
+    this.wasRecentlyCreated = true
+    this.syncOriginal()
+
+    return this
+  }
+
+  private async performUpdate(): Promise<this> {
+    const dirty = this.getDirty()
+    
+    if (Object.keys(dirty).length === 0) {
+      return this
+    }
+
+    // Add updated timestamp
+    if (this.timestamps) {
+      dirty[this.getUpdatedAtColumn()] = new Date()
+    }
+
+    const knex = Model.getKnex()
+    let query = knex(this.getTableName()).where(this.getKeyName(), this.getKey())
+
+    // Optimistic locking check
+    if (this.usesOptimisticLocking() && this.original[this.getVersionColumn()]) {
+      query = query.where(this.getVersionColumn(), this.original[this.getVersionColumn()])
+      dirty[this.getVersionColumn()] = (this.original[this.getVersionColumn()] as number) + 1
+    }
+
+    const affectedRows = await query.update(dirty)
+
+    if (affectedRows === 0 && this.usesOptimisticLocking()) {
+      throw new Error('Optimistic locking failed. The record has been modified by another process.')
+    }
+
+    // Update local attributes
+    Object.assign(this.attributes, dirty)
+    this.syncOriginal()
+
+    return this
+  }
+
+  public async delete(): Promise<boolean> {
+    if (!this.exists) {
+      return false
+    }
+
+    if (this.usesSoftDeletes()) {
+      return this.performSoftDelete()
+    } else {
+      return this.performDelete()
+    }
+  }
+
+  private async performSoftDelete(): Promise<boolean> {
+    const attributes: Attributes = {}
+    attributes[this.getDeletedAtColumn()] = new Date()
+    
+    if (this.timestamps) {
+      attributes[this.getUpdatedAtColumn()] = new Date()
+    }
+
+    Object.assign(this.attributes, attributes)
+    await this.performUpdate()
+    
+    return true
+  }
+
+  private async performDelete(): Promise<boolean> {
+    const knex = Model.getKnex()
+    const affectedRows = await knex(this.getTableName())
+      .where(this.getKeyName(), this.getKey())
+      .del()
+
+    if (affectedRows > 0) {
+      this.exists = false
+      return true
+    }
+
+    return false
+  }
+
+  public async restore(): Promise<this> {
+    if (!this.usesSoftDeletes()) {
+      throw new Error('Model does not use soft deletes')
+    }
+
+    this.setAttribute(this.getDeletedAtColumn(), null)
+    return this.save()
+  }
+
+  public async forceDelete(): Promise<boolean> {
+    if (!this.exists) {
+      return false
+    }
+
+    const knex = Model.getKnex()
+    const affectedRows = await knex(this.getTableName())
+      .where(this.getKeyName(), this.getKey())
+      .del()
+
+    if (affectedRows > 0) {
+      this.exists = false
+      return true
+    }
+
+    return false
+  }
+
+  // Relationships
+  public setRelation(relation: string, value: any): this {
+    this.relations[relation] = value
+    return this
+  }
+
+  public getRelation(relation: string): any {
+    return this.relations[relation]
+  }
+
+  /**
+   * Load relationships for this model instance
+   */
+  public async load(relations: string | string[] | Record<string, ((query: any) => void) | null>): Promise<this> {
+    const relationNames = this._normalizeRelations(relations)
+    
+    for (const [relationName, callback] of Object.entries(relationNames)) {
+      await this._loadSingleRelation(relationName, callback)
+    }
+    
+    return this
+  }
+
+  /**
+   * Load a single relationship, handling nested relationships
+   */
+  private async _loadSingleRelation(relationPath: string, callback: ((query: any) => void) | null): Promise<void> {
+    // Handle nested relationships like 'comments.author'
+    if (relationPath.includes('.')) {
+      const [parentRelation, childRelation] = relationPath.split('.', 2)
+      
+      // First load the parent relationship
+      await this._loadDirectRelation(parentRelation, null)
+      
+      // Then load the child relationship on the loaded parent data
+      const parentData = this.getRelation(parentRelation)
+      if (parentData) {
+        if (Array.isArray(parentData)) {
+          // For hasMany relationships, load child relation for each item
+          for (const item of parentData) {
+            if (item && typeof item.load === 'function') {
+              await item.load(childRelation)
+            }
+          }
+        } else if (typeof parentData.load === 'function') {
+          // For hasOne/belongsTo relationships
+          await parentData.load(childRelation)
+        }
+      }
+    } else {
+      // Direct relationship
+      await this._loadDirectRelation(relationPath, callback)
+    }
+  }
+
+  /**
+   * Load a direct (non-nested) relationship
+   */
+  private async _loadDirectRelation(relationName: string, callback: ((query: any) => void) | null): Promise<void> {
+    // Check if the model has this relationship method
+    const relationMethod = (this as any)[relationName]
+    if (typeof relationMethod === 'function') {
+      let relationship = relationMethod.call(this)
+      
+      // Apply callback constraints if provided
+      if (callback) {
+        callback(relationship)
+      }
+      
+      // Load the relationship data
+      const relationData = await relationship.get()
+      
+      // Set the loaded relationship
+      this.setRelation(relationName, relationData)
+    } else {
+      throw new Error(`Relationship '${relationName}' not found on model`)
+    }
+  }
+
+  /**
+   * Normalize relations input to a consistent format
+   */
+  private _normalizeRelations(relations: string | string[] | Record<string, ((query: any) => void) | null>): Record<string, ((query: any) => void) | null> {
+    if (typeof relations === 'string') {
+      return { [relations]: null }
+    }
+    
+    if (Array.isArray(relations)) {
+      const normalized: Record<string, ((query: any) => void) | null> = {}
+      for (const relation of relations) {
+        normalized[relation] = null
+      }
+      return normalized
+    }
+    
+    return relations
+  }
+
+  /**
+   * Load relationships for multiple model instances (for eager loading)
+   */
+  public static async loadRelationsForModels<T extends Model>(
+    models: T[], 
+    relations: string | string[] | Record<string, ((query: any) => void) | null>
+  ): Promise<void> {
+    if (models.length === 0) return
+    
+    const relationNames = models[0]._normalizeRelations(relations)
+    
+    for (const [relationName, callback] of Object.entries(relationNames)) {
+      await RelationshipManager.eagerLoad(models, relationName, callback || undefined)
+    }
+  }
+
+  // Relationship methods (to be overridden in subclasses)
+  public hasOne<T extends Model>(related: ModelConstructor<T>, foreignKey?: string | null, localKey?: string | null): Relationship<T> {
+    const relationship = RelationshipManager.hasOne(this, related, foreignKey, localKey)
+    relationship.relationName = this._getCallerMethodName()
+    return relationship
+  }
+
+  public hasMany<T extends Model>(related: ModelConstructor<T>, foreignKey?: string | null, localKey?: string | null): Relationship<T> {
+    const relationship = RelationshipManager.hasMany(this, related, foreignKey, localKey)
+    relationship.relationName = this._getCallerMethodName()
+    return relationship
+  }
+
+  public belongsTo<T extends Model>(related: ModelConstructor<T>, foreignKey?: string | null, ownerKey?: string | null): Relationship<T> {
+    const relationship = RelationshipManager.belongsTo(this, related, foreignKey, ownerKey)
+    relationship.relationName = this._getCallerMethodName()
+    return relationship
+  }
+
+  public belongsToMany<T extends Model>(
+    related: ModelConstructor<T>, 
+    table?: string | null, 
+    foreignPivotKey?: string | null, 
+    relatedPivotKey?: string | null, 
+    parentKey?: string | null, 
+    relatedKey?: string | null
+  ): Relationship<T> {
+    const relationship = RelationshipManager.belongsToMany(this, related, table, foreignPivotKey, relatedPivotKey, parentKey, relatedKey)
+    relationship.relationName = this._getCallerMethodName()
+    return relationship
+  }
+
+  private _getCallerMethodName(): string {
+    const stack = new Error().stack
+    if (!stack) return 'unknown'
+    const callerLine = stack.split('\n')[3]
+    const match = callerLine.match(/at (\w+)/)
+    return match ? match[1] : 'unknown'
+  }
+
+  // Static query methods
+  /**
+   * Create a new query builder for this model
+   */
+  public static query<T extends Model>(this: ModelConstructor<T>): any {
+    return new QueryBuilder(new this(), this.getKnex())
+  }
+
+  /**
+   * Get all models from the database
+   */
+  public static all<T extends Model>(this: ModelConstructor<T>): Promise<T[]> {
+    return this.query().get()
+  }
+
+  /**
+   * Find a model by its primary key
+   */
+  public static find<T extends Model>(this: ModelConstructor<T>, id: any): Promise<T | null> {
+    return this.query().find(id)
+  }
+
+  /**
+   * Find a model by its primary key or throw an error
+   */
+  public static findOrFail<T extends Model>(this: ModelConstructor<T>, id: any): Promise<T> {
+    return this.query().findOrFail(id)
+  }
+
+  /**
+   * Add a where clause to the query
+   */
+  public static where<T extends Model>(this: ModelConstructor<T>, column: string, operator?: any, value?: any): any {
+    if (arguments.length === 2) {
+      return this.query().where(column, operator)
+    } else {
+      return this.query().where(column, operator, value)
+    }
+  }
+
+  /**
+   * Add a whereIn clause to the query
+   */
+  public static whereIn<T extends Model>(this: ModelConstructor<T>, column: string, values: any[]): any {
+    return this.query().whereIn(column, values)
+  }
+
+  /**
+   * Create a new model instance and save it to the database
+   */
+  public static create<T extends Model>(this: ModelConstructor<T>, attributes: Attributes): Promise<T> {
+    const instance = new this(attributes)
+    return instance.save()
+  }
+
+  public static async firstOrCreate<T extends Model>(this: ModelConstructor<T>, attributes: Attributes, values: Attributes = {}): Promise<T> {
+    // For complex where clauses with multiple attributes, we need to build the query manually
+    let query = this.query()
+    for (const [key, value] of Object.entries(attributes)) {
+      query = query.where(key, value)
+    }
+    const instance = await query.first()
+    if (instance) {
+      return instance
+    }
+
+    return this.create({ ...attributes, ...values })
+  }
+
+  public static async updateOrCreate<T extends Model>(this: ModelConstructor<T>, attributes: Attributes, values: Attributes = {}): Promise<T> {
+    // For complex where clauses with multiple attributes, we need to build the query manually
+    let query = this.query()
+    for (const [key, value] of Object.entries(attributes)) {
+      query = query.where(key, value)
+    }
+    const instance = await query.first()
+    if (instance) {
+      instance.fill(values)
+      await instance.save()
+      return instance
+    }
+
+    return this.create({ ...attributes, ...values })
+  }
+
+  // Instance methods
+  public newQuery(): any {
+    return new QueryBuilder(this, Model.getKnex())
+  }
+
+  public newFromBuilder(attributes: Attributes): this {
+    const constructor = this.constructor as ModelConstructor<this>
+    const instance = new constructor()
+    instance.attributes = attributes
+    instance.original = { ...attributes }
+    instance.exists = true
+    
+    // Ensure all attribute keys have proxies
+    for (const key of Object.keys(attributes)) {
+      instance._createFieldProxy(key)
+    }
+    
+    // Also ensure common fields have proxies
+    instance._createFieldProxy(instance.getKeyName())
+    if (instance.timestamps) {
+      instance._createFieldProxy(instance.getCreatedAtColumn())
+      instance._createFieldProxy(instance.getUpdatedAtColumn())
+    }
+    
+    return instance
+  }
+
+  // Refresh from database
+  public async refresh(): Promise<this> {
+    if (!this.exists) {
+      throw new Error('Cannot refresh a model that does not exist in the database')
+    }
+
+    const constructor = this.constructor as ModelConstructor<this>
+    const fresh = await constructor.find(this.getKey())
+    if (!fresh) {
+      throw new Error('Model not found in database')
+    }
+
+    this.attributes = fresh.attributes
+    this.original = fresh.original
+    this.relations = {}
+
+    return this
+  }
+
+  // Clone instance
+  public replicate(except: string[] = []): this {
+    const attributes: Attributes = { ...this.attributes }
+    
+    // Remove primary key and specified exceptions
+    delete attributes[this.getKeyName()]
+    for (const key of except) {
+      delete attributes[key]
+    }
+
+    const constructor = this.constructor as ModelConstructor<this>
+    const instance = new constructor(attributes)
+    instance.exists = false
+    instance.wasRecentlyCreated = false
+
+    return instance
   }
 }
+
+export default Model

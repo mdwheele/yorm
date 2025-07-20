@@ -1,16 +1,15 @@
-version: '3.9'
-
 services:
-  postgres:
-    image: postgres:14-alpine
-    ports:
-      - 5432:5432
-    volumes:
-      - pg:/var/lib/postgresql/data
+  mariadb:
+    image: mariadb
+    container_name: yorm_mariadb
+    restart: unless-stopped
     environment:
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_DB=yorm
+      MYSQL_ROOT_PASSWORD: yorm
+      MYSQL_DATABASE: yorm
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
 
 volumes:
-  pg:
+  mariadb_data:
